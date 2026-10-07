@@ -16,7 +16,8 @@ Yayın: https://alterians.github.io/gitar-repertuar/ (repo `alterians/gitar-repe
 2. **Akorun yeri çok önemli.** Akor, kaynakta hangi hecenin üstündeyse o hecenin başına `[Akor]` olarak konur.
    - Kaynak ekran görüntüsüyse göz kararı yapılmaz: akor ve söz satırlarının piksel konumları ölçülür
      (Pillow ile; kırmızı/renkli akor kümeleri ↔ söz harflerinin x konumları), sonra en yakın hece başına oturtulur.
-     Eşitlikte önceki hece seçilir.
+     Eşitlikte (iki heceye eşit uzaklık) önce diğer kıtadaki aynı yere bakılır; orada net ise ona uyulur,
+     değilse önceki hece seçilir.
    - Kelime ortasına düşen akor kelimeyi böler: `şar[Dm]kıların`. Bu doğrudur, kelimenin başına kaydırılmaz.
    - Kıtalar arasında konumlar farklıysa kaynağa sadık kalınır, "düzeltilmez".
    - Sadece akorlardan oluşan satırlar (giriş/ara) `[Am] [G] [Am]` olarak ayrı satırda durur.
