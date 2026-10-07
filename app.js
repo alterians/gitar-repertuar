@@ -20,6 +20,30 @@ const savePrefs = () => store.set('prefs', prefs);
 const saveLocal = () => store.set('local', localSongs);
 const st = id => stats[id] || (stats[id] = { plays: 0, level: 0, fav: false });
 
+/* ---------- şifreli kişisel şarkılar (sarkilar.enc.json) ---------- */
+let privSongs = [], privBlob = null;
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+async function decryptPriv(rawKey) {
+  const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['decrypt']);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(privBlob.iv) }, key, unb64(privBlob.data));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function loadPrivate() {
+  try {
+    privBlob = await fetch('sarkilar.enc.json').then(r => (r.ok ? r.json() : null));
+    const k = store.get('pkey', null);
+    if (privBlob && k && k.salt === privBlob.salt) privSongs = await decryptPriv(unb64(k.raw));
+  } catch { privSongs = []; }
+}
+async function unlockPrivate(pass) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass.trim()), 'PBKDF2', false, ['deriveBits']);
+  const raw = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: unb64(privBlob.salt), iterations: privBlob.iter, hash: 'SHA-256' }, base, 256));
+  privSongs = await decryptPriv(raw); // yanlış şifrede hata fırlatır
+  store.set('pkey', { salt: privBlob.salt, raw: btoa(String.fromCharCode(...raw)) });
+}
+
 const LEVELS = [{ i: '🌱', n: 'Öğreniyorum' }, { i: '🎸', n: 'Çalabiliyorum' }, { i: '🔥', n: 'Ezber' }];
 
 function allSongs() {
@@ -30,7 +54,9 @@ function allSongs() {
     seen[id] = 1;
     return { ...s, id, builtin: true };
   });
-  return b.concat(localSongs.map(s => ({ ...s, builtin: false })));
+  const priv = privSongs.map(s => ({ ...s, builtin: true }));
+  const privIds = new Set(priv.map(s => s.id));
+  return b.concat(priv, localSongs.filter(s => !privIds.has(s.id)).map(s => ({ ...s, builtin: false })));
 }
 
 /* ---------- müzik ---------- */
@@ -181,6 +207,12 @@ function showHome() {
       <div><b>${ezber}</b><span>🔥 ezber</span></div>
       <div><b>${plays}</b><span>kez çalındı</span></div>
     </div>
+    ${privBlob && !privSongs.length ? `
+    <form class="lock" id="lockForm">
+      <b>🔒 Kişisel şarkıların kilitli</b>
+      <span class="muted">Şifreyi bir kez gir, bu telefon hatırlar.</span>
+      <div class="lock-row"><input id="lockPass" type="password" placeholder="Şifre" autocomplete="current-password" autocapitalize="none"><button class="big" type="submit">Aç</button></div>
+    </form>` : ''}
     <button class="dice" id="diceBtn"><span class="die">🎲</span> Ne çalsam?</button>
     <input id="q" class="search" type="search" placeholder="Şarkı, sanatçı ya da sözden ara…" value="${esc(filter.q)}" autocomplete="off">
     <div class="chips" id="chips"></div>
@@ -198,6 +230,20 @@ function showHome() {
   $('#themeBtn').onclick = () => { prefs.theme = prefs.theme === 'dark' ? 'light' : 'dark'; savePrefs(); applyTheme(); showHome(); };
   $('#diceBtn').onclick = rollDice;
   $('#exportBtn').onclick = exportLocal;
+  if ($('#lockForm')) $('#lockForm').onsubmit = async e => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button');
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      await unlockPrivate($('#lockPass').value);
+      confetti();
+      toast(`🔓 ${privSongs.length} şarkı açıldı!`);
+      showHome();
+    } catch {
+      btn.disabled = false; btn.textContent = 'Aç';
+      toast('Şifre yanlış 🙈');
+    }
+  };
   $('#importBtn').onclick = () => $('#importFile').click();
   $('#importFile').onchange = e => { if (e.target.files[0]) importSongs(e.target.files[0]); };
 }
@@ -550,7 +596,7 @@ function route() {
 }
 window.addEventListener('hashchange', route);
 applyTheme();
-route();
+loadPrivate().finally(route);
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   navigator.serviceWorker.register('sw.js').catch(() => { });

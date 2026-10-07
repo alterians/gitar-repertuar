@@ -5,10 +5,14 @@ Yayın: https://alterians.github.io/gitar-repertuar/ (repo `alterians/gitar-repe
 
 ## Şarkı ekleme kuralları
 
-1. **Sözler public repoya girmez.** Kullanıcının şarkıları `ozel/sarkilar/<sanatci-sarki>.txt` dosyasına yazılır
-   (`ozel/` gitignore'da). Sonra `python araclar/derle.py` → `ozel/repertuar.json` üretilir.
-   Kullanıcı bu dosyayı (OneDrive üzerinden) telefonda uygulamadaki **📥 Şarkı dosyası yükle** ile içe aktarır.
-   `songs.js` sadece uydurma sözlü örnekler içindir.
+1. **Sözler public repoya açık halde girmez.** Kullanıcının şarkıları `ozel/sarkilar/<sanatci-sarki>.txt` dosyasına yazılır
+   (`ozel/` gitignore'da). Sonra:
+   `node araclar/yayinla.mjs` → `sarkilar.enc.json` (AES-GCM şifreli) üretilir → commit + `git push`.
+   Telefon, şifre bir kez girildikten sonra yeni şarkıları kendiliğinden çeker (internet varsa her açılışta en güncel hali).
+   - Şifre ve tuz `ozel/anahtar.json` içinde. **Tuzu değiştirme**: telefonda şifre yeniden istenir.
+   - `ozel/repertuar.json` açık yedektir (📥 ile elle içe aktarma için), git'e girmez.
+   - `songs.js` sadece uydurma sözlü örnekler içindir.
+   - Push etmeden önce `git status` ile `ozel/` altından hiçbir şeyin eklenmediğini kontrol et.
 2. **Akorun yeri çok önemli.** Akor, kaynakta hangi hecenin üstündeyse o hecenin başına `[Akor]` olarak konur.
    - Kaynak ekran görüntüsüyse göz kararı yapılmaz: akor ve söz satırlarının piksel konumları ölçülür
      (Pillow ile; kırmızı/renkli akor kümeleri ↔ söz harflerinin x konumları), sonra en yakın hece başına oturtulur.

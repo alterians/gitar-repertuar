@@ -171,3 +171,10 @@ button.ichip:active { border-color: var(--accent); }
   .toolbar button { min-width: 34px; font-size: 14px; }
   .toolbar .pill { padding: 0 7px; }
 }
+
+/* ---- kilit ---- */
+.lock { display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px; padding: 14px; border-radius: 16px; background: var(--card); border: 1px dashed var(--chord); }
+.lock-row { display: flex; gap: 8px; margin-top: 4px; }
+.lock-row input { flex: 1; min-width: 0; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg2); font-size: 16px; outline: none; }
+.lock-row input:focus { border-color: var(--accent); }
+.lock-row .big { padding: 10px 20px; font-size: 16px; }

@@ -1,7 +1,7 @@
 // Offline katmanı: her şeyi önbellekten anında aç, internet varsa arkada güncelle.
 // Dosya listesini değiştirirsen VERSION'ı artır.
-const VERSION = 'repertuar-v2';
-const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'chords.js', 'songs.js', 'manifest.webmanifest',
+const VERSION = 'repertuar-v3';
+const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'chords.js', 'songs.js', 'sarkilar.enc.json', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -17,6 +17,13 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  // Şarkı dosyası: internet varsa hep en yenisi, yoksa önbellek
+  if (req.url.includes('sarkilar.enc.json')) {
+    e.respondWith(caches.open(VERSION).then(cache => fetch(req, { cache: 'no-store' })
+      .then(res => { if (res.ok) cache.put(req, res.clone()); return res; })
+      .catch(() => cache.match(req, { ignoreSearch: true }))));
+    return;
+  }
   e.respondWith(caches.open(VERSION).then(async cache => {
     const cached = await cache.match(req, { ignoreSearch: true })
       || (req.mode === 'navigate' ? await cache.match('index.html') : undefined);
