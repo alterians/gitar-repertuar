@@ -1,6 +1,6 @@
 // Offline katmanı: her şeyi önbellekten anında aç, internet varsa arkada güncelle.
 // Dosya listesini değiştirirsen VERSION'ı artır.
-const VERSION = 'repertuar-v1';
+const VERSION = 'repertuar-v2';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'chords.js', 'songs.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 

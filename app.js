@@ -186,6 +186,8 @@ function showHome() {
     <div class="chips" id="chips"></div>
     <ul class="list" id="list"></ul>
     <footer class="home-foot">
+      <button id="importBtn" class="link">📥 Şarkı dosyası yükle (.json)</button>
+      <input id="importFile" type="file" accept=".json,application/json" hidden>
       <button id="exportBtn" class="link">⬇️ Uygulamada eklediğim şarkıları dışa aktar</button>
     </footer>
     <a class="fab" href="#/edit/" aria-label="Şarkı ekle">＋</a>
@@ -196,6 +198,29 @@ function showHome() {
   $('#themeBtn').onclick = () => { prefs.theme = prefs.theme === 'dark' ? 'light' : 'dark'; savePrefs(); applyTheme(); showHome(); };
   $('#diceBtn').onclick = rollDice;
   $('#exportBtn').onclick = exportLocal;
+  $('#importBtn').onclick = () => $('#importFile').click();
+  $('#importFile').onchange = e => { if (e.target.files[0]) importSongs(e.target.files[0]); };
+}
+
+// Özel şarkı dosyası: aynı id'li şarkıyı günceller, yenileri ekler. Telefonda yerel saklanır.
+async function importSongs(file) {
+  try {
+    const data = JSON.parse(await file.text());
+    const list = Array.isArray(data) ? data : data.songs;
+    if (!Array.isArray(list)) throw new Error();
+    let added = 0, updated = 0;
+    for (const s of list) {
+      if (!s || !s.title || !s.content) continue;
+      const song = { ...s, id: s.id || 'imp-' + slug(s.title) };
+      const i = localSongs.findIndex(x => x.id === song.id);
+      if (i >= 0) { localSongs[i] = song; updated++; } else { localSongs.push(song); added++; }
+    }
+    saveLocal();
+    toast(`📥 ${added} yeni, ${updated} güncellendi`);
+    showHome();
+  } catch {
+    toast('Dosya okunamadı 😕 (.json olmalı)');
+  }
 }
 
 function renderChips(songs) {
@@ -292,6 +317,7 @@ function showSong(id) {
       <div class="titles"><h2>${esc(song.emoji || '🎵')} ${esc(song.title)}</h2><p>${esc(song.artist || '')}</p></div>
       <button class="icon-btn" id="favBtn" aria-label="Favori">${x.fav ? '⭐' : '☆'}</button>
     </header>
+    ${song.capo ? `<div class="capo-banner">🔩 KAPO ${esc(song.capo)}. PERDE</div>` : ''}
     <div class="info-row" id="infoRow"></div>
     <div class="strip" id="strip"></div>
     ${song.notes ? `<div class="notes">📝 ${esc(song.notes)}</div>` : ''}
