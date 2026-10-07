@@ -355,7 +355,7 @@ function showSong(id) {
   if (!song) { location.hash = '#/'; return; }
   const x = st(id);
   const parsed = parseContent(song.content);
-  cur = { song, parsed, key: songKey(song, parsed), t: x.t || 0, capo: x.capo ?? (song.capo || 0) };
+  cur = { song, parsed, key: songKey(song, parsed), t: x.t || 0, capo: x.capo != null && x.capoBase === (song.capo || 0) ? x.capo : (song.capo || 0) };
   app.innerHTML = `
   <div class="song">
     <header class="song-head">
@@ -469,7 +469,7 @@ function openCapo() {
   $('#sheetBody').onclick = e => {
     const x = st(cur.song.id);
     const c = e.target.closest('[data-capo]'), s = e.target.closest('[data-s]');
-    if (c) { cur.capo = +c.dataset.capo; x.capo = cur.capo; }
+    if (c) { cur.capo = +c.dataset.capo; x.capo = cur.capo; x.capoBase = cur.song.capo || 0; }
     else if (s) { cur.t = s.dataset.s === '0' ? 0 : cur.t + +s.dataset.s; if (Math.abs(cur.t) > 11) cur.t = 0; x.t = cur.t; }
     else return;
     saveStats(); renderSong(); openCapo();
