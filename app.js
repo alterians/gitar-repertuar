@@ -203,9 +203,9 @@ function showHome() {
       <button class="icon-btn" id="themeBtn" aria-label="Tema">${prefs.theme === 'dark' ? '☀️' : '🌙'}</button>
     </header>
     <div class="stats">
-      <div><b>${songs.length}</b><span>şarkı</span></div>
-      <div><b>${ezber}</b><span>🔥 ezber</span></div>
-      <div><b>${plays}</b><span>kez çalındı</span></div>
+      <div><b data-n="${songs.length}">${songs.length}</b><span>şarkı</span></div>
+      <div><b data-n="${ezber}">${ezber}</b><span>🔥 ezber</span></div>
+      <div><b data-n="${plays}">${plays}</b><span>kez çalındı</span></div>
     </div>
     ${privBlob && !privSongs.length ? `
     <form class="lock" id="lockForm">
@@ -225,7 +225,8 @@ function showHome() {
     <a class="fab" href="#/edit/" aria-label="Şarkı ekle">＋</a>
   </div>`;
   renderChips(songs);
-  renderList();
+  renderList(true);
+  countUp();
   $('#q').addEventListener('input', e => { filter.q = e.target.value; renderList(); });
   $('#themeBtn').onclick = () => { prefs.theme = prefs.theme === 'dark' ? 'light' : 'dark'; savePrefs(); applyTheme(); showHome(); };
   $('#diceBtn').onclick = rollDice;
@@ -246,6 +247,23 @@ function showHome() {
   };
   $('#importBtn').onclick = () => $('#importFile').click();
   $('#importFile').onchange = e => { if (e.target.files[0]) importSongs(e.target.files[0]); };
+}
+
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// İstatistik sayıları 0'dan sayarak gelsin
+function countUp() {
+  if (reducedMotion()) return;
+  document.querySelectorAll('.stats b[data-n]').forEach(b => {
+    const n = +b.dataset.n, t0 = performance.now();
+    if (!n) return;
+    const step = now => {
+      const p = Math.min(1, (now - t0) / 700);
+      b.textContent = Math.round(n * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
 }
 
 // Özel şarkı dosyası: aynı id'li şarkıyı günceller, yenileri ekler. Telefonda yerel saklanır.
@@ -279,11 +297,11 @@ function renderChips(songs) {
     if (!b) return;
     filter.tag = b.dataset.v || null;
     renderChips(songs);
-    renderList();
+    renderList(true);
   };
 }
 
-function renderList() {
+function renderList(anim = false) {
   const q = fold(filter.q.trim());
   const songs = allSongs().filter(s => {
     const x = st(s.id);
@@ -295,13 +313,16 @@ function renderList() {
     return fold([s.title, s.artist, (s.tags || []).join(' '), (s.content || '').replace(/\[[^\]]*\]/g, '')].join(' ')).includes(q);
   }).sort((a, b) => (st(b.id).fav - st(a.id).fav) || a.title.localeCompare(b.title, 'tr'));
 
-  $('#list').innerHTML = songs.length ? songs.map(s => {
+  const list = $('#list');
+  list.classList.toggle('anim', anim);
+  list.innerHTML = songs.length ? songs.map((s, i) => {
     const x = st(s.id);
     const key = songKey(s);
-    return `<li><a class="card" href="#/song/${encodeURIComponent(s.id)}">
+    return `<li style="--i:${Math.min(i, 12)}"><a class="card" href="#/song/${encodeURIComponent(s.id)}">
       <span class="emo">${esc(s.emoji || '🎵')}</span>
-      <span class="info"><span class="title">${esc(s.title)}</span><span class="artist">${esc(s.artist || '')}${x.plays ? ` · ${x.plays}× çalındı` : ''}</span></span>
-      <span class="meta">${x.fav ? '<span>⭐</span>' : ''}${key ? `<span class="badge">${esc(keyName(key, 0))}</span>` : ''}${s.capo ? `<span class="badge capo">K${s.capo}</span>` : ''}<span class="lvl" title="${LEVELS[x.level].n}">${LEVELS[x.level].i}</span></span>
+      <span class="info"><span class="title">${esc(s.title)}</span>
+        <span class="sub">${key ? `<span class="badge">${esc(keyName(key, 0))}</span>` : ''}${s.capo ? `<span class="badge capo">Kapo ${s.capo}</span>` : ''}<span class="artist">${esc(s.artist || '')}${x.plays ? ` · ${x.plays}×` : ''}</span></span></span>
+      <span class="side"><span class="lvl" title="${LEVELS[x.level].n}">${LEVELS[x.level].i}</span>${x.fav ? '<span class="fav">⭐</span>' : ''}</span>
     </a></li>`;
   }).join('') : `<li class="empty">Hiç şarkı bulunamadı 🤷<br><small>Filtreyi değiştir ya da ＋ ile ekle</small></li>`;
 }
@@ -587,12 +608,25 @@ function showEditor(id) {
 }
 
 /* ---------- yönlendirme ---------- */
+let lastDepth = -1, homeScroll = 0;
 function route() {
   closeSheet();
   const h = decodeURIComponent(location.hash);
-  if (h.startsWith('#/song/')) showSong(h.slice(7));
-  else if (h.startsWith('#/edit/')) showEditor(h.slice(7));
-  else showHome();
+  const depth = h.startsWith('#/edit/') ? 2 : h.startsWith('#/song/') ? 1 : 0;
+  const prev = lastDepth;
+  if (prev === 0 && depth > 0) homeScroll = window.scrollY;
+  const render = () => {
+    if (depth === 1) showSong(h.slice(7));
+    else if (depth === 2) showEditor(h.slice(7));
+    else { showHome(); if (prev > 0) window.scrollTo(0, homeScroll); }
+  };
+  const dir = depth >= prev ? 'fwd' : 'back';
+  const first = prev < 0;
+  lastDepth = depth;
+  if (first || reducedMotion()) return render();
+  document.documentElement.dataset.dir = dir;
+  if (document.startViewTransition) document.startViewTransition(render);
+  else { render(); app.firstElementChild?.classList.add('enter-' + dir); }
 }
 window.addEventListener('hashchange', route);
 applyTheme();
