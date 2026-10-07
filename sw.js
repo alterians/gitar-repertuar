@@ -1,11 +1,15 @@
-// Offline katmanı: her şeyi önbellekten anında aç, internet varsa arkada güncelle.
-// Dosya listesini değiştirirsen VERSION'ı artır.
-const VERSION = 'repertuar-v3';
+// Offline katmanı: internet varsa her zaman en yeni dosyayı getir (ve önbelleğe yaz),
+// internet yoksa ya da çok yavaşsa önbellekten aç.
+const VERSION = 'repertuar-v4';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'chords.js', 'songs.js', 'sarkilar.enc.json', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+const TIMEOUT = 3000;
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' -> tarayıcının HTTP önbelleğini atla, sunucudaki güncel hali al
+  e.waitUntil(caches.open(VERSION)
+    .then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -17,21 +21,21 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
-  // Şarkı dosyası: internet varsa hep en yenisi, yoksa önbellek
-  if (req.url.includes('sarkilar.enc.json')) {
-    e.respondWith(caches.open(VERSION).then(cache => fetch(req, { cache: 'no-store' })
-      .then(res => { if (res.ok) cache.put(req, res.clone()); return res; })
-      .catch(() => cache.match(req, { ignoreSearch: true }))));
-    return;
-  }
   e.respondWith(caches.open(VERSION).then(async cache => {
-    const cached = await cache.match(req, { ignoreSearch: true })
-      || (req.mode === 'navigate' ? await cache.match('index.html') : undefined);
-    const fresh = fetch(req).then(res => {
+    const fromCache = () => cache.match(req, { ignoreSearch: true })
+      .then(r => r || (req.mode === 'navigate' ? cache.match('index.html') : undefined));
+    const net = fetch(req, { cache: 'no-cache' }).then(res => {
       if (res.ok) cache.put(req, res.clone());
       return res;
-    }).catch(() => cached);
-    if (cached) { e.waitUntil(fresh); return cached; }
-    return fresh;
+    });
+    const timeout = new Promise(r => setTimeout(r, TIMEOUT));
+    try {
+      const res = await Promise.race([net, timeout]);
+      if (res) return res;
+      e.waitUntil(net.catch(() => { })); // yavaş bağlantı: önbellekten aç, arkada güncelle
+      return (await fromCache()) || net;
+    } catch {
+      return (await fromCache()) || Response.error();
+    }
   }));
 });

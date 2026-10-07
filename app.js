@@ -599,5 +599,8 @@ applyTheme();
 loadPrivate().finally(route);
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  navigator.serviceWorker.register('sw.js').catch(() => { });
+  const hadSW = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => { });
+  // Yeni sürüm devreye girince bir kez yenile
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadSW && !sessionStorage.reloaded) { sessionStorage.reloaded = 1; location.reload(); } });
 }
