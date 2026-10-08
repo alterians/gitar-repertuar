@@ -1,6 +1,6 @@
 // Offline katmanı: internet varsa her zaman en yeni dosyayı getir (ve önbelleğe yaz),
 // internet yoksa ya da çok yavaşsa önbellekten aç.
-const VERSION = 'repertuar-v5';
+const VERSION = 'repertuar-v6';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'chords.js', 'songs.js', 'sarkilar.enc.json', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 const TIMEOUT = 3000;

@@ -20,6 +20,36 @@ const savePrefs = () => store.set('prefs', prefs);
 const saveLocal = () => store.set('local', localSongs);
 const st = id => stats[id] || (stats[id] = { plays: 0, level: 0, fav: false });
 
+/* ---------- simgeler (çizgi SVG) ---------- */
+const ICONS = {
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a7 7 0 0 0 11 11z"/>',
+  star: '<path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.3L12 17.1l-5.6 3 1.1-6.3-4.6-4.4 6.3-.9z"/>',
+  sprout: '<path d="M12 21v-9"/><path d="M12 12c0-4 2.5-6.5 7-6.5 0 4.5-2.5 6.5-7 6.5z"/><path d="M12 14.5c0-3.3-2.2-5.5-6.5-5.5 0 3.8 2.2 5.5 6.5 5.5z"/>',
+  guitar: '<path d="M14 10l6.2-6.2"/><path d="M18.4 2.6l3 3"/><path d="M11.2 8.6c-1.7-.9-3.8-.6-4.9.6-.7.8-.6 1.8-1.5 2.5-.9.6-2.2.6-2.9 1.6-1 1.5 0 3.9 1.9 5.9s4.4 2.9 5.9 1.9c1-.7 1-2 1.6-2.9.7-.9 1.7-.8 2.5-1.5 1.2-1.1 1.5-3.2.6-4.9z"/><circle cx="9" cy="15" r="1.6"/>',
+  flame: '<path d="M12 22c-4 0-7-2.7-7-6.6 0-3.1 2-5.2 3.5-6.9.3 1.8 1.2 3 2.3 3.6C10.5 8.4 12.2 4.8 15 2.5c-.3 3.2 1.2 5.2 2.6 7C18.6 11 19 12.6 19 15.4 19 19.3 16 22 12 22z"/><path d="M12 22c-1.7 0-3-1.2-3-3 0-1.6 1.2-2.7 2.2-3.8.4 1.2 1.2 1.8 2 2 .2-.9.5-1.7 1.1-2.4.4 1 .7 1.8.7 2.9 0 2.2-1.3 4.3-3 4.3z"/>',
+  dice: '<rect x="3" y="3" width="18" height="18" rx="4.5"/><g fill="currentColor" stroke="none"><circle cx="8" cy="8" r="1.5"/><circle cx="16" cy="8" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="8" cy="16" r="1.5"/><circle cx="16" cy="16" r="1.5"/></g>',
+  import: '<path d="M12 3v11M7.5 9.5 12 14l4.5-4.5"/><path d="M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/>',
+  export: '<path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/>',
+  lock: '<rect x="4.5" y="10.5" width="15" height="10.5" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
+  unlock: '<rect x="4.5" y="10.5" width="15" height="10.5" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 7.7-1.5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  back: '<path d="M15 5l-7 7 7 7"/>',
+  music: '<path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  capo: '<rect x="2.5" y="9" width="19" height="6" rx="3"/><path d="M7 9V5.5M17 9V5.5M7 15v3.5M17 15v3.5"/>',
+  shape: '<rect x="5" y="3" width="14" height="18" rx="1.5"/><path d="M5 8.5h14M5 14h14M9.7 3v18M14.3 3v18"/><circle cx="12" cy="11.2" r="1.3" fill="currentColor"/>',
+  timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 10v3.5l2.5 1.5M9.5 2.5h5"/>',
+  play: '<path d="M7.5 4.8v14.4a1 1 0 0 0 1.5.9l11.3-7.2a1 1 0 0 0 0-1.7L9 4a1 1 0 0 0-1.5.8z" fill="currentColor"/>',
+  pause: '<rect x="6.5" y="4.5" width="4" height="15" rx="1.2" fill="currentColor"/><rect x="13.5" y="4.5" width="4" height="15" rx="1.2" fill="currentColor"/>',
+  check: '<path d="M4.5 12.5l5 5L20 7"/>',
+  edit: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  save: '<path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3M7 21v-7h10v7"/>',
+  trash: '<path d="M4 7h16M9.5 7V4.5h5V7M6 7l1 13h10l1-13M10 11v5M14 11v5"/>',
+  note: '<path d="M6 3h8l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M14 3v5h5M8 13h8M8 17h5"/>',
+  alert: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 4 2.5 17.5A2 2 0 0 0 4.2 20.5h15.6a2 2 0 0 0 1.7-3L13.7 4a2 2 0 0 0-3.4 0z"/>',
+};
+const ic = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
+
 /* ---------- şifreli kişisel şarkılar (sarkilar.enc.json) ---------- */
 let privSongs = [], privBlob = null;
 const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
@@ -44,7 +74,8 @@ async function unlockPrivate(pass) {
   store.set('pkey', { salt: privBlob.salt, raw: btoa(String.fromCharCode(...raw)) });
 }
 
-const LEVELS = [{ i: '🌱', n: 'Öğreniyorum' }, { i: '🎸', n: 'Çalabiliyorum' }, { i: '🔥', n: 'Ezber' }];
+const LEVELS = [{ i: '🌱', ic: 'sprout', n: 'Öğreniyorum' }, { i: '🎸', ic: 'guitar', n: 'Çalabiliyorum' }, { i: '🔥', ic: 'flame', n: 'Ezber' }];
+const lvlIc = l => ic(LEVELS[l].ic, 'lv' + l);
 
 function allSongs() {
   const seen = {};
@@ -199,30 +230,30 @@ function showHome() {
   app.innerHTML = `
   <div class="home">
     <header class="home-head">
-      <div><h1>🎸 Repertuarım</h1><p class="greet">${pick(GREETINGS)}</p></div>
-      <button class="icon-btn" id="themeBtn" aria-label="Tema">${prefs.theme === 'dark' ? '☀️' : '🌙'}</button>
+      <div><h1><span class="logo">${ic('guitar')}</span>Repertuarım</h1><p class="greet">${pick(GREETINGS)}</p></div>
+      <button class="icon-btn" id="themeBtn" aria-label="Tema">${ic(prefs.theme === 'dark' ? 'sun' : 'moon')}</button>
     </header>
     <div class="stats">
       <div><b data-n="${songs.length}">${songs.length}</b><span>şarkı</span></div>
-      <div><b data-n="${ezber}">${ezber}</b><span>🔥 ezber</span></div>
+      <div><b data-n="${ezber}">${ezber}</b><span>${ic('flame', 'lv2')} ezber</span></div>
       <div><b data-n="${plays}">${plays}</b><span>kez çalındı</span></div>
     </div>
     ${privBlob && !privSongs.length ? `
     <form class="lock" id="lockForm">
-      <b>🔒 Kişisel şarkıların kilitli</b>
+      <b>${ic('lock')} Kişisel şarkıların kilitli</b>
       <span class="muted">Şifreyi bir kez gir, bu telefon hatırlar.</span>
       <div class="lock-row"><input id="lockPass" type="password" placeholder="Şifre" autocomplete="current-password" autocapitalize="none"><button class="big" type="submit">Aç</button></div>
     </form>` : ''}
-    <button class="dice" id="diceBtn"><span class="die">🎲</span> Ne çalsam?</button>
+    <button class="dice" id="diceBtn"><span class="die">${ic('dice')}</span> Ne çalsam?</button>
     <input id="q" class="search" type="search" placeholder="Şarkı, sanatçı ya da sözden ara…" value="${esc(filter.q)}" autocomplete="off">
     <div class="chips" id="chips"></div>
     <ul class="list" id="list"></ul>
     <footer class="home-foot">
-      <button id="importBtn" class="link">📥 Şarkı dosyası yükle (.json)</button>
+      <button id="importBtn" class="link">${ic('import')} Şarkı dosyası yükle (.json)</button>
       <input id="importFile" type="file" accept=".json,application/json" hidden>
-      <button id="exportBtn" class="link">⬇️ Uygulamada eklediğim şarkıları dışa aktar</button>
+      <button id="exportBtn" class="link">${ic('export')} Uygulamada eklediğim şarkıları dışa aktar</button>
     </footer>
-    <a class="fab" href="#/edit/" aria-label="Şarkı ekle">＋</a>
+    <a class="fab" href="#/edit/" aria-label="Şarkı ekle">${ic('plus')}</a>
   </div>`;
   renderChips(songs);
   renderList(true);
@@ -289,9 +320,9 @@ async function importSongs(file) {
 
 function renderChips(songs) {
   const tags = [...new Set(songs.flatMap(s => s.tags || []))].sort((a, b) => a.localeCompare(b, 'tr'));
-  const chips = [[null, 'Tümü'], ['__fav', '⭐ Favori'], ['__lv2', '🔥 Ezber'], ['__lv0', '🌱 Öğreniyorum'], ...tags.map(t => [t, '#' + t])];
+  const chips = [[null, 'Tümü'], ['__fav', ic('star', 'starc') + 'Favori'], ['__lv2', lvlIc(2) + 'Ezber'], ['__lv0', lvlIc(0) + 'Öğreniyorum'], ...tags.map(t => [t, '#' + esc(t)])];
   const el = $('#chips');
-  el.innerHTML = chips.map(([v, l]) => `<button class="chip ${filter.tag === v ? 'on' : ''}" data-v="${esc(v ?? '')}">${esc(l)}</button>`).join('');
+  el.innerHTML = chips.map(([v, l]) => `<button class="chip ${filter.tag === v ? 'on' : ''}" data-v="${esc(v ?? '')}">${l}</button>`).join('');
   el.onclick = e => {
     const b = e.target.closest('.chip');
     if (!b) return;
@@ -322,7 +353,7 @@ function renderList(anim = false) {
       <span class="emo">${esc(s.emoji || '🎵')}</span>
       <span class="info"><span class="title">${esc(s.title)}</span>
         <span class="sub">${key ? `<span class="badge">${esc(keyName(key, 0))}</span>` : ''}${s.capo ? `<span class="badge capo">Kapo ${s.capo}</span>` : ''}<span class="artist">${esc(s.artist || '')}${x.plays ? ` · ${x.plays}×` : ''}</span></span></span>
-      <span class="side"><span class="lvl" title="${LEVELS[x.level].n}">${LEVELS[x.level].i}</span>${x.fav ? '<span class="fav">⭐</span>' : ''}</span>
+      <span class="side"><span class="lvl" title="${LEVELS[x.level].n}">${lvlIc(x.level)}</span>${x.fav ? `<span class="fav">${ic('star', 'starc on')}</span>` : ''}</span>
     </a></li>`;
   }).join('') : `<li class="empty">Hiç şarkı bulunamadı 🤷<br><small>Filtreyi değiştir ya da ＋ ile ekle</small></li>`;
 }
@@ -334,7 +365,7 @@ function rollDice() {
   const w = songs.map(s => 1 / (1 + (st(s.id).plays || 0)));
   let r = Math.random() * w.reduce((a, b) => a + b, 0), chosen = songs[0];
   for (let i = 0; i < songs.length; i++) { r -= w[i]; if (r <= 0) { chosen = songs[i]; break; } }
-  openSheet(`<div class="roll"><div class="roll-die">🎲</div><div class="roll-name" id="rollName">…</div><div id="rollAct"></div></div>`);
+  openSheet(`<div class="roll"><div class="roll-die">${ic('dice')}</div><div class="roll-name" id="rollName">…</div><div id="rollAct"></div></div>`);
   let n = 0;
   const iv = setInterval(() => {
     const s = n++ < 12 ? pick(songs) : chosen;
@@ -342,7 +373,7 @@ function rollDice() {
     if (n > 12) {
       clearInterval(iv);
       $('#rollName').classList.add('done');
-      $('#rollAct').innerHTML = `<a class="big" href="#/song/${encodeURIComponent(chosen.id)}">Hadi çal! 🎸</a><button class="link" id="again">Bir daha 🎲</button>`;
+      $('#rollAct').innerHTML = `<a class="big" href="#/song/${encodeURIComponent(chosen.id)}">${ic('guitar')} Hadi çal!</a><button class="link" id="again">${ic('dice')} Bir daha</button>`;
       $('#again').onclick = rollDice;
       $('#rollAct a').onclick = closeSheet;
     }
@@ -380,30 +411,30 @@ function showSong(id) {
   app.innerHTML = `
   <div class="song">
     <header class="song-head">
-      <a href="#/" class="icon-btn" aria-label="Geri">‹</a>
+      <a href="#/" class="icon-btn" aria-label="Geri">${ic('back')}</a>
       <div class="titles"><h2>${esc(song.emoji || '🎵')} ${esc(song.title)}</h2><p>${esc(song.artist || '')}</p></div>
-      <button class="icon-btn" id="favBtn" aria-label="Favori">${x.fav ? '⭐' : '☆'}</button>
+      <button class="icon-btn" id="favBtn" aria-label="Favori">${ic('star', 'starc' + (x.fav ? ' on' : ''))}</button>
     </header>
-    ${song.capo ? `<div class="capo-banner">🔩 KAPO ${esc(song.capo)}. PERDE</div>` : ''}
+    ${song.capo ? `<div class="capo-banner">${ic('capo')} KAPO ${esc(song.capo)}. PERDE</div>` : ''}
     <div class="info-row" id="infoRow"></div>
     <div class="strip" id="strip"></div>
-    ${song.notes ? `<div class="notes">📝 ${esc(song.notes)}</div>` : ''}
+    ${song.notes ? `<div class="notes">${ic('note')} ${esc(song.notes)}</div>` : ''}
     <article class="body" id="body" style="font-size:${prefs.font}px"></article>
     <div class="end">
-      <button id="playedBtn" class="big">✅ Çaldım!</button>
-      ${song.builtin ? '' : `<a class="link" href="#/edit/${encodeURIComponent(id)}">✏️ Düzenle</a>`}
+      <button id="playedBtn" class="big">${ic('check')} Çaldım!</button>
+      ${song.builtin ? '' : `<a class="link" href="#/edit/${encodeURIComponent(id)}">${ic('edit')} Düzenle</a>`}
     </div>
   </div>
   <nav class="toolbar">
     <div class="grp"><button data-a="t-" aria-label="Ton düşür">−</button><span class="lbl" id="tLbl"></span><button data-a="t+" aria-label="Ton yükselt">+</button></div>
     <button data-a="capo" id="capoBtn" class="pill"></button>
     <div class="grp"><button data-a="f-">A−</button><button data-a="f+">A+</button></div>
-    <div class="grp"><button data-a="scroll" id="scrollBtn" aria-label="Otomatik kaydır">▶</button><button data-a="spd" id="spdBtn" aria-label="Hız"></button></div>
+    <div class="grp"><button data-a="scroll" id="scrollBtn" aria-label="Otomatik kaydır">${ic('play')}</button><button data-a="spd" id="spdBtn" aria-label="Hız"></button></div>
   </nav>`;
   renderSong();
   window.scrollTo(0, 0);
 
-  $('#favBtn').onclick = () => { x.fav = !x.fav; saveStats(); $('#favBtn').textContent = x.fav ? '⭐' : '☆'; toast(x.fav ? 'Favorilere eklendi ⭐' : 'Favorilerden çıkarıldı'); };
+  $('#favBtn').onclick = () => { x.fav = !x.fav; saveStats(); $('#favBtn').innerHTML = ic('star', 'starc' + (x.fav ? ' on' : '')); toast(x.fav ? 'Favorilere eklendi ⭐' : 'Favorilerden çıkarıldı'); };
   $('#playedBtn').onclick = played;
   $('.toolbar').onclick = e => { const b = e.target.closest('[data-a]'); if (b) act(b.dataset.a); };
   const chordTap = e => { const c = e.target.closest('[data-c]'); if (c) showChord(c.dataset.c); };
@@ -423,12 +454,12 @@ function renderSong() {
   const x = st(song.id);
   const sh = shapeShift();
   const chips = [];
-  if (key) chips.push(`<button class="ichip" id="keyChip">🎵 Ton <b>${keyName(key, cur.t)}</b></button>`);
-  chips.push(`<button class="ichip" onclick="openCapo()">🔩 ${cur.capo ? `Kapo <b>${cur.capo}</b>` : 'Kapo yok'}</button>`);
-  if (key && cur.capo) chips.push(`<span class="ichip">✋ Şekil <b>${keyName(key, cur.t - cur.capo)}</b></span>`);
-  if (song.bpm) chips.push(`<span class="ichip">⏱ <b>${esc(song.bpm)}</b> bpm</span>`);
-  chips.push(`<button class="ichip" id="lvlChip">${LEVELS[x.level].i} ${LEVELS[x.level].n}</button>`);
-  if (x.plays) chips.push(`<span class="ichip">▶ ${x.plays}×</span>`);
+  if (key) chips.push(`<button class="ichip" id="keyChip">${ic('music')} Ton <b>${keyName(key, cur.t)}</b></button>`);
+  chips.push(`<button class="ichip" onclick="openCapo()">${ic('capo')} ${cur.capo ? `Kapo <b>${cur.capo}</b>` : 'Kapo yok'}</button>`);
+  if (key && cur.capo) chips.push(`<span class="ichip">${ic('shape')} Şekil <b>${keyName(key, cur.t - cur.capo)}</b></span>`);
+  if (song.bpm) chips.push(`<span class="ichip">${ic('timer')} <b>${esc(song.bpm)}</b> bpm</span>`);
+  chips.push(`<button class="ichip" id="lvlChip">${lvlIc(x.level)} ${LEVELS[x.level].n}</button>`);
+  if (x.plays) chips.push(`<span class="ichip">${ic('play')} ${x.plays}×</span>`);
   $('#infoRow').innerHTML = chips.join('');
 
   const uniq = [...new Set(chordsIn(parsed).map(c => transposeChord(c, sh)))];
@@ -480,7 +511,7 @@ function openCapo() {
     opts += `<button class="capo-opt${c === cur.capo ? ' on' : ''}${easy ? ' easy' : ''}" data-capo="${c}"><b>${c ? 'Kapo ' + c : 'Kapo yok'}</b><span>${keyName(key, n)} şekli${easy ? ' ⭐' : ''}</span></button>`;
   }
   openSheet(`
-    <h3 class="sh-title">🔩 Kapo & Ton</h3>
+    <h3 class="sh-title">${ic('capo')} Kapo & Ton</h3>
     <p class="big-key">Duyulan ton: <b>${keyName(key, cur.t)}</b>${cur.t ? ` <small>(orijinal ${keyName(key, 0)})</small>` : ''}</p>
     <div class="row3">
       <button data-s="-1">− ½ ses</button><button data-s="0">Orijinal</button><button data-s="1">+ ½ ses</button>
@@ -526,7 +557,7 @@ function played() {
 
 function startScroll() {
   let last = performance.now(), acc = 0;
-  $('#scrollBtn').textContent = '⏸';
+  $('#scrollBtn').innerHTML = ic('pause');
   $('#scrollBtn').classList.add('on');
   const step = now => {
     acc += (now - last) / 1000 * prefs.speed * 9;
@@ -541,7 +572,7 @@ function stopScroll() {
   cancelAnimationFrame(scrollRAF);
   scrollRAF = null;
   const b = $('#scrollBtn');
-  if (b) { b.textContent = '▶'; b.classList.remove('on'); }
+  if (b) { b.innerHTML = ic('play'); b.classList.remove('on'); }
 }
 async function requestWake() {
   try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch { }
@@ -562,7 +593,7 @@ function showEditor(id) {
   app.innerHTML = `
   <div class="editor">
     <header class="song-head">
-      <a href="${s ? '#/song/' + encodeURIComponent(s.id) : '#/'}" class="icon-btn">‹</a>
+      <a href="${s ? '#/song/' + encodeURIComponent(s.id) : '#/'}" class="icon-btn" aria-label="Geri">${ic('back')}</a>
       <div class="titles"><h2>${s ? 'Şarkıyı düzenle' : 'Yeni şarkı'}</h2><p>Bu cihazda saklanır</p></div>
     </header>
     <form id="ef">
@@ -579,8 +610,8 @@ function showEditor(id) {
         <textarea name="content" rows="14" required placeholder="# Nakarat&#10;[Am]Yağmur yağar [F]ince ince&#10;&#10;ya da&#10;&#10;Am           F&#10;Yağmur yağar ince ince">${esc(v.content)}</textarea>
       </label>
       <p class="muted">İpucu: Bir siteden kopyaladığın "akor satırı üstte" formatı da olduğu gibi çalışır.</p>
-      <button class="big" type="submit">💾 Kaydet</button>
-      ${s ? '<button class="link danger" type="button" id="delBtn">🗑 Şarkıyı sil</button>' : ''}
+      <button class="big" type="submit">${ic('save')} Kaydet</button>
+      ${s ? `<button class="link danger" type="button" id="delBtn">${ic('trash')} Şarkıyı sil</button>` : ''}
     </form>
   </div>`;
   $('#ef').onsubmit = e => {
@@ -599,7 +630,7 @@ function showEditor(id) {
   };
   if (s) $('#delBtn').onclick = () => {
     const b = $('#delBtn');
-    if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = '⚠️ Emin misin? Tekrar dokun'; return; }
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.innerHTML = ic('alert') + ' Emin misin? Tekrar dokun'; return; }
     localSongs = localSongs.filter(x => x !== s);
     saveLocal();
     toast('Silindi');
