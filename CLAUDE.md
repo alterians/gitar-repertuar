@@ -33,6 +33,8 @@ Yayın: https://alterians.github.io/gitar-repertuar/ (repo `alterians/gitar-repe
    - Zorluk: `kolay` (sadece açık akorlar) / `orta` (1–2 bare akor, ör. F, Bm) / `zor` (çok bare, hızlı geçişler)
    - Uygunsa ekstra: `türkü`, `rock`, `pop`, `arabesk`, `sanat`, `film`
    - Bir de şarkıya uyan bir `emoji:` seçilir.
+     Kartta emoji yerine renkli kutu + çizgi simge çıkar: renk ruh halinden, simge emojiden (`EMOJI_IC`, app.js:
+     💔 ❤️ 🥀 🌹 🔥 🌙 ☀️ 🌧️ 😢 🍂 🌿 🎸 🎵 📻 🙏 ✨ ⭐). Listede olmayan emoji → ruh hali simgesi.
 5. Bare akor varsa (F, Bm…) `notes:` alanına kolay alternatif önerilir (ör. F → Fmaj7 `xx3210`).
 
 ## Dosya biçimi (`ozel/sarkilar/*.txt`)

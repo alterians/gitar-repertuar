@@ -46,8 +46,25 @@ const ICONS = {
   save: '<path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3M7 21v-7h10v7"/>',
   trash: '<path d="M4 7h16M9.5 7V4.5h5V7M6 7l1 13h10l1-13M10 11v5M14 11v5"/>',
   note: '<path d="M6 3h8l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M14 3v5h5M8 13h8M8 17h5"/>',
+  heart: '<path d="M12 20s-7.5-4.6-7.5-10.4A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/>',
+  broken: '<path d="M12 20s-7.5-4.6-7.5-10.4A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/><path d="M12 7l-1.6 3.6 2.8 2-1.7 3.4"/>',
+  rose: '<path d="M12 11.5c-2.8 0-4.8-2-4.8-5 1.8 0 3 .6 3.6 1.4.3-1.7.8-3 1.2-3.9.4.9.9 2.2 1.2 3.9.6-.8 1.8-1.4 3.6-1.4 0 3-2 5-4.8 5z"/><path d="M12 11.5V21M12 17c-2.2 0-3.6-1.1-4-3 2.1 0 3.6 1 4 3zM12 18.5c2.2 0 3.6-1.1 4-3-2.1 0-3.6 1-4 3z"/>',
+  rain: '<path d="M7 15a4 4 0 0 1-.4-8A5.5 5.5 0 0 1 17.2 7.6 3.7 3.7 0 0 1 17 15z"/><path d="M8.5 18l-1 2.5M12.5 18l-1 2.5M16.5 18l-1 2.5"/>',
+  leaf: '<path d="M5 19.5C5 11 10 5 20 4.5c0 10-5.5 15.5-14 15"/><path d="M5 19.5c3-4.2 6.2-7.2 10-9.2"/>',
+  vinyl: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M12 6.2a5.8 5.8 0 0 1 5.8 5.8M12 17.8A5.8 5.8 0 0 1 6.2 12"/>',
+  sparkle: '<path d="M12 3c.6 4.6 2.4 6.4 7 7-4.6.6-6.4 2.4-7 7-.6-4.6-2.4-6.4-7-7 4.6-.6 6.4-2.4 7-7z"/><path d="M18.5 15.5c.3 1.8 1 2.5 2.5 2.8-1.5.3-2.2 1-2.5 2.7-.3-1.7-1-2.4-2.5-2.7 1.5-.3 2.2-1 2.5-2.8z"/>',
   alert: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 4 2.5 17.5A2 2 0 0 0 4.2 20.5h15.6a2 2 0 0 0 1.7-3L13.7 4a2 2 0 0 0-3.4 0z"/>',
 };
+// Şarkı kartı görseli: renk ruh halinden, simge emojiden (tanıdıksa) ya da ruh halinden
+const MOODS = { 'hüzünlü': 'rain', 'aşk': 'heart', 'neşeli': 'sun', 'isyan': 'flame', 'nostalji': 'vinyl', 'huzur': 'leaf' };
+const EMOJI_IC = { '💔': 'broken', '❤️': 'heart', '❤': 'heart', '♥️': 'heart', '🥀': 'rose', '🌹': 'rose', '🔥': 'flame', '🌙': 'moon', '☀️': 'sun',
+  '🌧️': 'rain', '🌧': 'rain', '😢': 'rain', '😭': 'rain', '🍂': 'leaf', '🌿': 'leaf', '🎸': 'guitar', '🎵': 'music', '🎶': 'music', '📻': 'vinyl', '🙏': 'sparkle', '✨': 'sparkle', '⭐': 'star' };
+function songArt(s, cls = '') {
+  const mood = (s.tags || []).find(t => MOODS[t]);
+  const e = String(s.emoji || '').trim();
+  const name = EMOJI_IC[e] || EMOJI_IC[e.replace(/\uFE0F/g, '')] || MOODS[mood] || 'music';
+  return `<span class="art ${mood ? 'm-' + slug(mood) : 'm-none'} ${cls}">${ic(name)}</span>`;
+}
 const ic = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
 
 /* ---------- şifreli kişisel şarkılar (sarkilar.enc.json) ---------- */
@@ -350,7 +367,7 @@ function renderList(anim = false) {
     const x = st(s.id);
     const key = songKey(s);
     return `<li style="--i:${Math.min(i, 12)}"><a class="card" href="#/song/${encodeURIComponent(s.id)}">
-      <span class="emo">${esc(s.emoji || '🎵')}</span>
+      ${songArt(s)}
       <span class="info"><span class="title">${esc(s.title)}</span>
         <span class="sub">${key ? `<span class="badge">${esc(keyName(key, 0))}</span>` : ''}${s.capo ? `<span class="badge capo">Kapo ${s.capo}</span>` : ''}<span class="artist">${esc(s.artist || '')}${x.plays ? ` · ${x.plays}×` : ''}</span></span></span>
       <span class="side"><span class="lvl" title="${LEVELS[x.level].n}">${lvlIc(x.level)}</span>${x.fav ? `<span class="fav">${ic('star', 'starc on')}</span>` : ''}</span>
@@ -369,7 +386,7 @@ function rollDice() {
   let n = 0;
   const iv = setInterval(() => {
     const s = n++ < 12 ? pick(songs) : chosen;
-    $('#rollName').innerHTML = `<span>${esc(s.emoji || '🎵')}</span> ${esc(s.title)}<small>${esc(s.artist || '')}</small>`;
+    $('#rollName').innerHTML = `${songArt(s, 'sm')} ${esc(s.title)}<small>${esc(s.artist || '')}</small>`;
     if (n > 12) {
       clearInterval(iv);
       $('#rollName').classList.add('done');
@@ -412,7 +429,7 @@ function showSong(id) {
   <div class="song">
     <header class="song-head">
       <a href="#/" class="icon-btn" aria-label="Geri">${ic('back')}</a>
-      <div class="titles"><h2>${esc(song.emoji || '🎵')} ${esc(song.title)}</h2><p>${esc(song.artist || '')}</p></div>
+      <div class="titles"><h2>${songArt(song, 'sm')} ${esc(song.title)}</h2><p>${esc(song.artist || '')}</p></div>
       <button class="icon-btn" id="favBtn" aria-label="Favori">${ic('star', 'starc' + (x.fav ? ' on' : ''))}</button>
     </header>
     ${song.capo ? `<div class="capo-banner">${ic('capo')} KAPO ${esc(song.capo)}. PERDE</div>` : ''}
