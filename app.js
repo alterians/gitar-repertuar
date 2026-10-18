@@ -454,7 +454,12 @@ function showSong(id) {
   $('#favBtn').onclick = () => { x.fav = !x.fav; saveStats(); $('#favBtn').innerHTML = ic('star', 'starc' + (x.fav ? ' on' : '')); toast(x.fav ? 'Favorilere eklendi ⭐' : 'Favorilerden çıkarıldı'); };
   $('#playedBtn').onclick = played;
   $('.toolbar').onclick = e => { const b = e.target.closest('[data-a]'); if (b) act(b.dataset.a); };
-  const chordTap = e => { const c = e.target.closest('[data-c]'); if (c) showChord(c.dataset.c); };
+  const chordTap = e => {
+    const c = e.target.closest('[data-c]');
+    if (!c) return;
+    if (mOn && prefs.acc === 'akor' && c.closest('#body')) { accJump = accEls().indexOf(c); c.classList.add('now'); return toast('Buradan devam 🎻'); }
+    showChord(c.dataset.c);
+  };
   $('#body').onclick = chordTap;
   $('#strip').onclick = chordTap;
   $('#infoRow').onclick = e => {
@@ -598,18 +603,121 @@ async function requestWake() {
   try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch { }
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cur) requestWake(); });
+/* ---------- eşlik: yaylı (keman) + bas ---------- */
+// Ton: şarkının tonunda kök + beşli arka plan. Akor: sözlerdeki akorları sırayla çalar,
+// her akor prefs.accLen vuruş sürer; çalan akor parlar, sayfa ona kayar, akora dokununca oradan devam.
+const hz = m => 440 * 2 ** ((m - 69) / 12);
+let pads = [], accIdx = -1, accLeft = 0, accPos = 0, accJump = null, accChord = null;
+function parseChord(name, shift) {
+  const m = /^([A-G])([#b]?)(.*?)(?:\/([A-G])([#b]?))?$/.exec(name || '');
+  if (!m) return null;
+  const pc = (l, a) => mod(NOTE[l + a] + shift);
+  const q = m[3];
+  let iv = /^m(?!aj)/.test(q) ? [0, 3, 7] : [0, 4, 7];
+  if (/dim|°/.test(q)) iv = [0, 3, 6];
+  if (/aug|\+/.test(q)) iv = [0, 4, 8];
+  if (/sus2/.test(q)) iv = [0, 2, 7]; else if (/sus/.test(q)) iv = [0, 5, 7];
+  if (/maj7|M7/.test(q)) iv.push(11); else if (/7/.test(q)) iv.push(/dim/.test(q) ? 9 : 10);
+  else if (/6/.test(q)) iv.push(9);
+  if (/9/.test(q)) iv.push(2);
+  const root = pc(m[1], m[2]);
+  return { root, bass: m[4] ? pc(m[4], m[5]) : root, pcs: iv.map(i => mod(root + i)) };
+}
+const voice = pcs => [...pcs.map(p => 55 + mod(p - 55)), 67 + mod(pcs[0] - 67)];
+const bassM = pc => 40 + mod(pc - 40);
+function pad(t, midis, dur) {
+  const f = mctx.createBiquadFilter(), g = mctx.createGain(), lfo = mctx.createOscillator(), lg = mctx.createGain();
+  f.type = 'lowpass'; f.frequency.value = 1700; f.Q.value = .6;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(.075, t + .35);
+  g.gain.setValueAtTime(.075, t + Math.max(.4, dur - .05));
+  g.gain.linearRampToValueAtTime(0, t + dur + .5);
+  f.connect(g); g.connect(mOut);
+  lfo.frequency.value = 5.3; lg.gain.value = 6; lfo.connect(lg); // hafif vibrato (cent)
+  for (const m of midis) for (const d of [-8, 8]) {
+    const o = mctx.createOscillator();
+    o.type = 'sawtooth'; o.frequency.value = hz(m); o.detune.value = d;
+    lg.connect(o.detune); o.connect(f); o.start(t); o.stop(t + dur + .6);
+  }
+  lfo.start(t); lfo.stop(t + dur + .6);
+  pads = [...pads.slice(-3), g];
+}
+function bass(t, m, len, v) {
+  const f = mctx.createBiquadFilter(), g = mctx.createGain();
+  f.type = 'lowpass'; f.frequency.value = 800;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(v, t + .012);
+  g.gain.exponentialRampToValueAtTime(v * .5, t + len * .6);
+  g.gain.exponentialRampToValueAtTime(.001, t + len);
+  f.connect(g); g.connect(mOut);
+  for (const [type, k] of [['triangle', 1], ['sawtooth', .5]]) {
+    const o = mctx.createOscillator(), og = mctx.createGain();
+    o.type = type; o.frequency.value = hz(m); og.gain.value = k;
+    o.connect(og); og.connect(f); o.start(t); o.stop(t + len + .02);
+  }
+}
+const accEls = () => [...document.querySelectorAll('#body .c')];
+function accReset() {
+  // ekranda görünen ilk akordan başla
+  const els = accEls();
+  const i = els.findIndex(el => el.getBoundingClientRect().top > 70);
+  accIdx = (i < 0 ? 0 : i) - 1; accLeft = 0; accJump = null; accChord = null;
+}
+function accShow(i) {
+  document.querySelectorAll('#body .c.now').forEach(el => el.classList.remove('now'));
+  const el = accEls()[i];
+  if (!el || !mOn || prefs.acc !== 'akor') return;
+  el.classList.add('now');
+  const r = el.getBoundingClientRect();
+  if (r.top < 80 || r.top > innerHeight * .55) window.scrollTo({ top: scrollY + r.top - innerHeight * .3, behavior: 'smooth' });
+}
+function accBeat(t, b) {
+  const spb = 60 / cur.bpm, live = prefs.live !== false, useBass = prefs.bass !== false;
+  if (prefs.acc === 'ton') {
+    if (!cur.key) return;
+    const k = mod(cur.key.i + cur.t);
+    if (accLeft <= 0) { pad(t, voice([k, mod(k + 7)]), 8 * spb); accLeft = 8; }
+    if (b === 0 && useBass) bass(t, bassM(k), spb * 1.6, .3);
+    accLeft--;
+  } else if (prefs.acc === 'akor') {
+    const els = accEls();
+    if (!els.length) return;
+    if (accJump != null) { accIdx = accJump - 1; accJump = null; accLeft = 0; }
+    if (accLeft <= 0) {
+      accIdx = (accIdx + 1) % els.length;
+      accLeft = prefs.accLen || 4; accPos = 0;
+      accChord = parseChord(els[accIdx].dataset.c, cur.capo);
+      if (accChord) pad(t, voice(accChord.pcs), accLeft * spb);
+      const i = accIdx;
+      setTimeout(() => accShow(i), Math.max(0, (t - mctx.currentTime) * 1000));
+    }
+    if (useBass && accChord) {
+      if (accPos === 0) bass(t, bassM(accChord.bass), spb * 1.8, .36);
+      else if (accPos % 2 === 0) bass(t, bassM(live && Math.random() < .5 ? accChord.root : mod(accChord.root + 7)), spb * 1.5, .3);
+    }
+    accPos++; accLeft--;
+  }
+}
+function accStop() {
+  const now = mctx ? mctx.currentTime : 0;
+  pads.forEach(g => { g.gain.cancelScheduledValues(now); g.gain.setTargetAtTime(0, now, .08); });
+  pads = [];
+  document.querySelectorAll('#body .c.now').forEach(el => el.classList.remove('now'));
+}
+
 /* ---------- metronom / bateri (4/4, sekizlik adımlar) ---------- */
 let mctx = null, mOut = null, noise = null, mOn = false, mBeat = 0, mNext = 0, mTimer = null, taps = [];
 // k: kick, s: trampet, h: hi-hat, r: kenar (rim), b: fırça — desen uzunluğu bir ölçü:
 // 8 adım = sekizlik (1 & 2 & 3 & 4 &), 12 adım = 12/8 (her vuruşta üç)
 const DRUMS = {
   klik: { n: 'Klik', k: '........' },
+  yok: { n: 'Yok', k: '........' },
   pop: { n: 'Pop', k: 'x...x...', s: '..x...x.', h: 'xxxxxxxx' },
   rock: { n: 'Rock', k: 'x..xx.x.', s: '..x...x.', h: 'xxxxxxxx' },
   balad: { n: 'Balad', k: 'x.....x.', s: '..x...x.', h: 'x.x.x.x.', soft: true },
   slow: { n: 'Slow', k: 'x.......', s: '....x...', h: 'x.x.x.x.', soft: true },
   firca: { n: 'Fırça', k: 'x.....x.', r: '..x...x.', b: 'x.x.x.x.', soft: true },
-  '128': { n: '12/8', k: 'x.....x.x...', s: '...x.....x..', h: 'xxxxxxxxxxxx', soft: true },
+  oniki: { n: '12/8', k: 'x.....x.x...', s: '...x.....x..', h: 'xxxxxxxxxxxx', soft: true },
 };
 if (!DRUMS[prefs.drum]) prefs.drum = 'klik';
 
@@ -681,6 +789,7 @@ const TOMS = { T: 210, M: 160, L: 115 };
 let mBar = 0, mFill = '';
 function metroStep(t, i, d) {
   const L = d.k.length, per = L / 4, on = p => p && p[i] === 'x';
+  if (prefs.drum === 'yok') return;
   if (prefs.drum === 'klik') click(t, i === 0);
   else {
     const live = prefs.live !== false;
@@ -711,6 +820,7 @@ function metroTick() {
   while (mNext < mctx.currentTime + .12) {
     if (mBeat >= L) { mBeat = 0; mBar++; }
     if (prefs.drum !== 'klik' || mBeat % per === 0) metroStep(mNext, mBeat, d);
+    if (mBeat % per === 0) accBeat(mNext, mBeat / per);
     if (mBeat % per === 0) { const b = mBeat / per; setTimeout(() => metroFlash(b), Math.max(0, (mNext - mctx.currentTime) * 1000)); }
     mNext += 240 / cur.bpm / L;
     mBeat++;
@@ -734,6 +844,8 @@ function metroStart() {
   }
   mctx.resume();
   mOut.gain.value = metroVol();
+  accReset();
+  if (prefs.acc === 'akor') stopScroll(); // sayfayı akor takibi kaydırır
   mOn = true; mBeat = 0; mBar = 0; mNext = mctx.currentTime + .06;
   clearInterval(mTimer);
   mTimer = setInterval(metroTick, 25);
@@ -742,6 +854,7 @@ function metroStart() {
 }
 function metroStop() {
   clearInterval(mTimer);
+  accStop();
   mOn = false;
   metroUI();
 }
@@ -760,8 +873,15 @@ function metroUI() {
   const g = $('#mGo');
   if (g) { g.classList.toggle('on', mOn); g.innerHTML = mOn ? `${ic('pause')} Durdur` : `${ic('play')} Başlat`; }
   if (!mOn) document.querySelectorAll('.mdot').forEach(d => d.classList.remove('on'));
+  const acc = prefs.acc || 'off';
+  document.querySelectorAll('[data-e]').forEach(d => d.classList.toggle('on', d.dataset.e === acc));
+  document.querySelectorAll('[data-l]').forEach(d => d.classList.toggle('on', +d.dataset.l === (prefs.accLen || 4)));
+  const al = $('#accLen'), mb = $('#mBass'), ah = $('#accHint');
+  if (al) al.classList.toggle('hidden', acc !== 'akor');
+  if (mb) { mb.classList.toggle('hidden', acc === 'off'); mb.classList.toggle('on', prefs.bass !== false); mb.innerHTML = `<i></i> Bas gitar <small>${prefs.bass !== false ? 'açık' : 'kapalı'}</small>`; }
+  if (ah) ah.textContent = acc === 'akor' ? 'Her akor seçtiğin süre kadar çalar; çalan akor sözlerde parlar. Kayarsa sözlerdeki bir akora dokun, oradan devam eder.' : acc === 'ton' ? 'Şarkının tonunda yumuşak bir arka plan; akorlarla çakışmaz.' : '';
   const lv = $('#mLive');
-  if (lv) { lv.classList.toggle('on', prefs.live !== false); lv.classList.toggle('hidden', prefs.drum === 'klik'); lv.innerHTML = `<i></i> Canlı çalım <small>${prefs.live !== false ? 'açık · dolgular, zil, doğal vuruş' : 'kapalı · hep aynı desen'}</small>`; }
+  if (lv) { lv.classList.toggle('on', prefs.live !== false); lv.classList.toggle('hidden', prefs.drum === 'klik' || prefs.drum === 'yok'); lv.innerHTML = `<i></i> Canlı çalım <small>${prefs.live !== false ? 'açık · dolgular, zil, doğal vuruş' : 'kapalı · hep aynı desen'}</small>`; }
   document.querySelectorAll('[data-d]').forEach(d => d.classList.toggle('on', d.dataset.d === prefs.drum));
   const r = $('#mReset');
   if (r && cur) r.classList.toggle('hidden', !cur.song.bpm || cur.bpm === +cur.song.bpm);
@@ -780,16 +900,31 @@ function openMetro() {
     <div class="metro-bpm"><button data-m="-5">−5</button><button data-m="-1">−</button><b id="mBpm"></b><button data-m="1">+</button><button data-m="5">+5</button></div>
     <p class="muted metro-sub">bpm · 4/4${orig ? ` · kayıtlı tempo ${orig}` : ''}</p>
     <div class="mdots"><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i></div>
+    <button class="big metro-go" id="mGo" data-m="go"></button>
     <div class="drums">${Object.entries(DRUMS).map(([k, d]) => `<button data-d="${k}">${d.n}</button>`).join('')}</div>
     <label class="vol">${ic('music')} Ses <input type="range" id="mVol" min="10" max="100" value="${prefs.vol ?? 80}"></label>
     <button class="live-tg" id="mLive" data-m="live"></button>
+    <h4 class="m-h">🎻 Eşlik <small>keman + bas</small></h4>
+    <div class="drums acc">${[['off', 'Kapalı'], ['ton', 'Ton'], ['akor', 'Akor takibi']].map(([k, n]) => `<button data-e="${k}">${n}</button>`).join('')}</div>
+    <div class="drums acc" id="accLen">${[[2, '½ ölçü'], [4, '1 ölçü'], [8, '2 ölçü']].map(([k, n]) => `<button data-l="${k}">${n}</button>`).join('')}</div>
+    <button class="live-tg" id="mBass" data-m="bass"></button>
+    <p class="muted" id="accHint"></p>
     <div class="row3"><button data-m="half">½×</button><button data-m="tap">Ritme dokun</button><button data-m="dbl">2×</button></div>
-    <button class="big metro-go" id="mGo" data-m="go"></button>
     <button class="link metro-reset hidden" id="mReset" data-m="reset">Kayıtlı tempoya dön (${orig})</button>
     <p class="muted">Tempo yanlışsa şarkıyı dinlerken vuruşlara "Ritme dokun" ile birkaç kez bas. Çok hızlı geliyorsa ½×. Yavaş şarkılarda Balad, Slow, Fırça ya da 12/8 dene.</p>`);
   metroUI();
   $('#mVol').oninput = e => { prefs.vol = +e.target.value; savePrefs(); if (mOut) mOut.gain.value = metroVol(); };
   $('#sheetBody').onclick = e => {
+    const ae = e.target.closest('[data-e]'), al = e.target.closest('[data-l]');
+    if (ae) {
+      prefs.acc = ae.dataset.e; savePrefs();
+      if (mctx) accStop();
+      accReset();
+      if (prefs.acc === 'akor') { stopScroll(); closeSheet(); }
+      if (prefs.acc !== 'off' && !mOn) metroStart();
+      return metroUI();
+    }
+    if (al) { prefs.accLen = +al.dataset.l; savePrefs(); return metroUI(); }
     const d = e.target.closest('[data-d]');
     if (d) {
       // 8 ↔ 12 adımlı desen arasında geçince ölçü başından devam et
@@ -802,6 +937,7 @@ function openMetro() {
     if (!b) return;
     const m = b.dataset.m;
     if (m === 'go') return mOn ? metroStop() : metroStart();
+    if (m === 'bass') { prefs.bass = prefs.bass === false; savePrefs(); return metroUI(); }
     if (m === 'live') { prefs.live = prefs.live === false; savePrefs(); return metroUI(); }
     if (m === 'reset') return setBpm(orig);
     if (m === 'half') return setBpm((cur.bpm || 80) / 2);
