@@ -118,6 +118,8 @@ button.ichip:active { border-color: var(--accent); }
 .t { white-space: pre; }
 .c { color: var(--chord); font-weight: 700; font-size: .88em; padding-right: .45em; cursor: pointer; line-height: 1.2; }
 .c:active { opacity: .6; }
+.c.g { opacity: .4; font-weight: 600; font-style: italic; }
+#body .c.g.now { opacity: 1; }
 .cline { display: flex; flex-wrap: wrap; gap: .2em .9em; margin: 6px 0; align-items: baseline; }
 .cline .c { padding: 0; }
 .cline .x { color: var(--muted); }

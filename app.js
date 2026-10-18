@@ -488,12 +488,18 @@ function renderSong() {
   const uniq = [...new Set(chordsIn(parsed).map(c => transposeChord(c, sh)))];
   $('#strip').innerHTML = uniq.map(c => `<button class="mini" data-c="${esc(c)}">${Chords.svg(c, 52) || '<span class="nod">?</span>'}<span>${esc(c)}</span></button>`).join('');
 
+  let last = null; // satır akorsuz başlıyorsa önceki akor sürüyor: soluk (Dm) olarak gösterilir, akor takibi de onu sayar
   $('#body').innerHTML = parsed.map(b => {
     if (b.type === 'empty') return '<div class="gap"></div>';
     if (b.type === 'section') return `<h3 class="sec">${esc(b.text)}</h3>`;
     if (b.type === 'note') return `<p class="cmt">${esc(b.text)}</p>`;
-    if (b.type === 'chords') return `<div class="cline">${b.items.map(t => isChord(t) ? chordSpan(t, sh) : `<span class="x">${esc(t)}</span>`).join('')}</div>`;
-    return renderLine(b.segs, sh);
+    if (b.type === 'chords') {
+      last = b.items.filter(isChord).pop() || last;
+      return `<div class="cline">${b.items.map(t => isChord(t) ? chordSpan(t, sh) : `<span class="x">${esc(t)}</span>`).join('')}</div>`;
+    }
+    const h = renderLine(b.segs, sh, last);
+    last = b.segs.map(s => s.chord).filter(Boolean).pop() || last;
+    return h;
   }).join('');
 
   $('#tLbl').textContent = cur.t ? (cur.t > 0 ? '+' : '') + cur.t : 'Ton';
@@ -501,15 +507,17 @@ function renderSong() {
   $('#spdBtn').textContent = '×' + prefs.speed;
 }
 
-const chordSpan = (c, sh) => { const t = transposeChord(c, sh); return `<span class="c" data-c="${esc(t)}">${esc(t)}</span>`; };
+const chordSpan = (c, sh, g) => { const t = transposeChord(c, sh); return `<span class="c${g ? ' g' : ''}" data-c="${esc(t)}">${esc(t)}</span>`; };
 
-function renderLine(segs, sh) {
+function renderLine(segs, sh, prev) {
+  const first = segs.find(s => s.chord || s.text.trim());
+  if (prev && first && !first.chord) segs = segs.map(s => s === first ? { ...s, chord: prev, g: true } : s);
   const hasC = segs.some(s => s.chord);
   let h = '';
   for (const s of segs) {
     const pieces = s.text.replace(/\s+/g, ' ').match(/\S+ ?| /g) || [''];
     pieces.forEach((p, i) => {
-      if (i === 0 && s.chord) h += `<span class="w">${chordSpan(s.chord, sh)}<span class="t">${p ? esc(p) : '&nbsp;'}</span></span>`;
+      if (i === 0 && s.chord) h += `<span class="w">${chordSpan(s.chord, sh, s.g)}<span class="t">${p ? esc(p) : '&nbsp;'}</span></span>`;
       else h += `<span class="w"><span class="t">${esc(p)}</span></span>`;
     });
   }
