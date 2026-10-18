@@ -614,9 +614,9 @@ async function requestWake() {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cur) requestWake(); });
 /* ---------- eşlik: yaylı (keman) + bas ---------- */
 // Ton: şarkının tonunda kök + beşli arka plan. Akor: sözlerdeki akorları sırayla çalar,
-// her akor prefs.accLen vuruş sürer; çalan akor parlar, sayfa ona kayar, akora dokununca oradan devam.
+// her akor accDurs ile hesaplanan süre kadar çalar; çalan akor parlar, sayfa ona kayar, akora dokununca oradan devam.
 const hz = m => 440 * 2 ** ((m - 69) / 12);
-let pads = [], accIdx = -1, accLeft = 0, accPos = 0, accJump = null, accChord = null, accD = null, rec = null;
+let pads = [], accIdx = -1, accLeft = 0, accPos = 0, accJump = null, accChord = null, accD = null, accBars = [], rec = null;
 function parseChord(name, shift) {
   const m = /^([A-G])([#b]?)(.*?)(?:\/([A-G])([#b]?))?$/.exec(name || '');
   if (!m) return null;
@@ -666,25 +666,63 @@ function bass(t, m, len, v) {
   }
 }
 const accEls = () => [...document.querySelectorAll('#body .c')];
-// her akorun kaç vuruş süreceği: dokunarak kaydedildiyse o, yoksa hece sayısıyla orantılı
-// (ortalama hece sayısı = seçilen süre), hece yoksa (akor satırı) seçilen süre
+// Her akorun kaç vuruş süreceği — çalan biri nasıl duyuyorsa:
+// 1) Her söz satırı bir cümledir ve bir bölümdeki satırlar aynı uzunluktadır (1, 2 ya da 4 ölçü).
+//    Uzunluk tempo + hece sayısından seçilir (saniyede ~2.2 hece söylenir) ya da elle (prefs.phrase).
+// 2) Cümle, satırın ilk gerçek akoruyla 1. vuruşta başlar. Ondan önceki 1–3 hece ("Beni", "Kor")
+//    ön çekimdir: önceki cümlenin sonunda söylenir, üstündeki soluk akor süre almaz.
+// 3) Satır içindeki akorlar hecedeki yerine göre cümleye yayılır, yarım ölçüye (1. ya da 3. vuruş) oturur.
+//    Satır sonundaki uzatılan hece ve sonraki satırın ön çekimi de cümleye dahildir.
+// 4) Hiç akoru olmayan satırda önceki akor bütün cümle boyunca sürer; akor satırlarında her akor 1 ölçü.
 const VOWELS = /[aeıioöuüâîûAEIİOÖUÜÂÎÛ]+/g;
+const syl = t => (t.match(VOWELS) || []).length;
+const TAIL = 3, PICKUP = 3, SYL_PER_SEC = 2.2;
+function phraseBars(med) {
+  if (prefs.phrase) return prefs.phrase;
+  const err = p => Math.abs(Math.log(med / (p * 240 / cur.bpm) / SYL_PER_SEC));
+  return [1, 2, 4].reduce((b, p) => err(p) < err(b) ? p : b, 2);
+}
 function accDurs(els) {
-  const L = prefs.accLen || 4, d = cur && st(cur.song.id).dur;
+  const d = cur && st(cur.song.id).dur;
   if (d && d.length === els.length) return d;
-  if (prefs.syl === false) return els.map(() => L);
-  const syl = els.map(el => {
-    let w = el.closest('.line') && el.closest('.w'), n = 0;
-    while (w) {
-      n += (w.querySelector('.t').textContent.match(VOWELS) || []).length;
-      w = w.nextElementSibling;
-      if (w && w.querySelector('.c')) break;
-    }
-    return n;
-  });
-  const v = syl.filter(Boolean), avg = v.reduce((a, b) => a + b, 0) / (v.length || 1), g = L >= 4 ? 2 : 1;
-  // 1 ölçülükte yarım ölçü (2 vuruş) adımlarla: akorlar çoğunlukla 1. ya da 3. vuruşta değişir
-  return syl.map(n => n ? Math.min(L * 3, Math.max(g, Math.round(L * n / avg / g) * g)) : L);
+  const out = new Map(), secs = [[]];
+  for (const n of document.querySelectorAll('#body > *')) {
+    if (n.matches('.sec')) { secs.push([]); secs[secs.length - 1].name = n.textContent; }
+    else if (n.matches('.line, .cline')) secs[secs.length - 1].push(n);
+  }
+  accBars = [];
+  for (const rows of secs) {
+    const info = rows.map(r => {
+      if (r.matches('.cline')) return null;
+      const ws = [...r.children].map(w => ({ c: w.querySelector('.c'), n: syl(w.querySelector('.t').textContent) }));
+      const k = ws.findIndex(w => w.c && !w.c.classList.contains('g'));
+      const pre = ws.slice(0, Math.max(0, k)).reduce((a, w) => a + w.n, 0);
+      return { ws, start: k > 0 && pre <= PICKUP ? k : 0, pick: k > 0 && pre <= PICKUP ? pre : 0, total: ws.reduce((a, w) => a + w.n, 0) };
+    });
+    const sy = info.filter(Boolean).map(x => x.total).sort((a, b) => a - b);
+    const P = phraseBars(sy[sy.length >> 1] || 8);
+    if (sy.length) accBars.push(`${rows.name ? rows.name + ' ' : ''}${P}`);
+    rows.forEach((r, i) => {
+      const x = info[i];
+      if (!x) return r.querySelectorAll('.c').forEach(c => out.set(c, 4));
+      x.ws.slice(0, x.start).forEach(w => w.c && out.set(w.c, 0));
+      const cs = [];
+      let pos = 0;
+      for (const w of x.ws.slice(x.start)) { if (w.c) cs.push([w.c, pos]); pos += w.n; }
+      if (!cs.length) return;
+      const N = pos + TAIL + (info[i + 1] ? info[i + 1].pick : 0);
+      let g = 2, B = P * 4;
+      if (cs.length * g > B) g = 1;
+      B = Math.max(B, cs.length * g);
+      let prev = -g;
+      const ts = cs.map(([, p], j) => {
+        const t = Math.min(B - g * (cs.length - j), Math.max(prev + g, j ? Math.round(p / N * B / g) * g : 0));
+        return prev = t;
+      });
+      cs.forEach(([c], j) => out.set(c, (j + 1 < cs.length ? ts[j + 1] : B) - ts[j]));
+    });
+  }
+  return els.map(e => out.get(e) ?? 4);
 }
 function accReset() {
   // ekranda görünen ilk akordan başla
@@ -714,7 +752,10 @@ function accBeat(t, b) {
     if (!accD || accD.length !== els.length) accD = accDurs(els);
     if (accJump != null) { accIdx = accJump - 1; accJump = null; accLeft = 0; }
     if (accLeft <= 0) {
-      accIdx = (accIdx + 1) % els.length;
+      // süresi 0 olanlar (ön çekim; kayıtta tüm soluk akorlar) atlanır
+      let k = 0;
+      do accIdx = (accIdx + 1) % els.length;
+      while ((rec ? els[accIdx].classList.contains('g') : !accD[accIdx]) && ++k < els.length);
       accLeft = rec ? Infinity : accD[accIdx]; accPos = 0;
       if (rec && rec.last == null) rec.last = t;
       accChord = parseChord(els[accIdx].dataset.c, cur.capo);
@@ -734,7 +775,7 @@ function accBeat(t, b) {
 function recStart() {
   closeSheet();
   prefs.acc = 'akor'; savePrefs();
-  rec = { b: [], last: null };
+  rec = { b: [], idx: [], last: null };
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (!mOn) metroStart();
   accIdx = -1; accLeft = 0; accJump = null; accD = null;
@@ -746,15 +787,18 @@ function recStart() {
 }
 function recUI() {
   const b = $('#recTap');
-  if (b) b.innerHTML = `👆 Akor değişti <small>${rec.b.length + 1}/${accEls().length}</small>`;
+  if (b) b.innerHTML = `👆 Akor değişti <small>${rec.b.length + 1}/${accEls().filter(e => !e.classList.contains('g')).length}</small>`;
 }
 function recTap() {
   if (!rec || rec.last == null) return;
-  const now = mctx.currentTime, n = accEls().length;
+  const now = mctx.currentTime, els = accEls(), n = els.filter(e => !e.classList.contains('g')).length;
   rec.b.push(Math.max(1, Math.round((now - rec.last) * cur.bpm / 60)));
+  rec.idx.push(accIdx);
   rec.last = now;
   if (rec.b.length >= n) {
-    st(cur.song.id).dur = rec.b; saveStats();
+    const dur = els.map(() => 0); // soluk akorlar 0: önceki akor sürer
+    rec.idx.forEach((i, k) => { dur[i] = rec.b[k]; });
+    st(cur.song.id).dur = dur; saveStats();
     recEnd(); accReset();
     return toast('Akor süreleri kaydedildi ✅');
   }
@@ -944,14 +988,15 @@ function metroUI() {
   if (!mOn) document.querySelectorAll('.mdot').forEach(d => d.classList.remove('on'));
   const acc = prefs.acc || 'off';
   document.querySelectorAll('[data-e]').forEach(d => d.classList.toggle('on', d.dataset.e === acc));
-  document.querySelectorAll('[data-l]').forEach(d => d.classList.toggle('on', +d.dataset.l === (prefs.accLen || 4)));
+  document.querySelectorAll('[data-l]').forEach(d => d.classList.toggle('on', +d.dataset.l === (prefs.phrase || 0)));
   const al = $('#accLen'), mb = $('#mBass'), ah = $('#accHint');
   if (al) al.classList.toggle('hidden', acc !== 'akor');
   if (mb) { mb.classList.toggle('hidden', acc === 'off'); mb.classList.toggle('on', prefs.bass !== false); mb.innerHTML = `<i></i> Bas gitar <small>${prefs.bass !== false ? 'açık' : 'kapalı'}</small>`; }
-  const dur = cur && st(cur.song.id).dur, sy = $('#mSyl'), rc = $('#mRec');
-  if (sy) { sy.classList.toggle('hidden', acc !== 'akor' || !!dur); sy.classList.toggle('on', prefs.syl !== false); sy.innerHTML = `<i></i> Hece'ye göre süre <small>${prefs.syl !== false ? 'açık' : 'kapalı'}</small>`; }
+  const dur = cur && st(cur.song.id).dur, rc = $('#mRec');
+  if (al) al.classList.toggle('hidden', acc !== 'akor' || !!dur);
+  if (cur && acc === 'akor' && !dur && !prefs.phrase) { accDurs(accEls()); }
   if (rc) { rc.classList.toggle('hidden', acc !== 'akor'); rc.innerHTML = dur ? `✅ Kayıtlı süreler <small><span data-m="recDel">Sil</span> · <span data-m="rec">Yeniden</span></small>` : `⏺ Süreleri dokunarak kaydet <small>isteğe bağlı</small>`; }
-  if (ah) ah.textContent = acc === 'akor' ? (dur ? 'Akorlar senin kaydettiğin sürelerle çalar.' : prefs.syl !== false ? 'Süre sözden tahmin edilir: seçtiğin süre ortalama akor süresidir. Tam tutsun istersen bir kez dokunarak kaydet.' : 'Her akor seçtiğin süre kadar çalar.') + ' Kayarsa sözlerdeki bir akora dokun, oradan devam eder.' : acc === 'ton' ? 'Şarkının tonunda yumuşak bir arka plan; akorlarla çakışmaz.' : '';
+  if (ah) ah.textContent = acc === 'akor' ? (dur ? 'Akorlar senin kaydettiğin sürelerle çalar.' : `Her söz satırı ${prefs.phrase || accBars.join(', ') || 2} ölçü sayılır${prefs.phrase ? '' : ' (otomatik)'}; akorlar satırdaki yerlerine göre yerleşir. Takip hep geride ya da ileride kalıyorsa satır uzunluğunu değiştir; tam tutsun istersen bir kez dokunarak kaydet.`) + ' Kayarsa sözlerdeki bir akora dokun, oradan devam eder.' : acc === 'ton' ? 'Şarkının tonunda yumuşak bir arka plan; akorlarla çakışmaz.' : '';
   const lv = $('#mLive');
   if (lv) { lv.classList.toggle('on', prefs.live !== false); lv.classList.toggle('hidden', prefs.drum === 'klik' || prefs.drum === 'yok'); lv.innerHTML = `<i></i> Canlı çalım <small>${prefs.live !== false ? 'açık · dolgular, zil, doğal vuruş' : 'kapalı · hep aynı desen'}</small>`; }
   document.querySelectorAll('[data-d]').forEach(d => d.classList.toggle('on', d.dataset.d === prefs.drum));
@@ -979,8 +1024,7 @@ function openMetro() {
     <button class="live-tg" id="mLive" data-m="live"></button>
     <h4 class="m-h">🎻 Eşlik <small>keman + bas</small></h4>
     <div class="drums acc">${[['off', 'Kapalı'], ['ton', 'Ton'], ['akor', 'Akor takibi']].map(([k, n]) => `<button data-e="${k}">${n}</button>`).join('')}</div>
-    <div class="drums acc" id="accLen">${[[2, '½ ölçü'], [4, '1 ölçü'], [8, '2 ölçü']].map(([k, n]) => `<button data-l="${k}">${n}</button>`).join('')}</div>
-    <button class="live-tg" id="mSyl" data-m="syl"></button>
+    <div class="drums acc" id="accLen"><span class="m-lbl">Satır</span>${[[0, 'Oto'], [1, '1 ölçü'], [2, '2 ölçü'], [4, '4 ölçü']].map(([k, n]) => `<button data-l="${k}">${n}</button>`).join('')}</div>
     <button class="live-tg" id="mRec" data-m="rec"></button>
     <button class="live-tg" id="mBass" data-m="bass"></button>
     <p class="muted" id="accHint"></p>
@@ -998,7 +1042,7 @@ function openMetro() {
       if (prefs.acc !== 'off' && !mOn) metroStart();
       return metroUI();
     }
-    if (al) { prefs.accLen = +al.dataset.l; savePrefs(); accD = null; return metroUI(); }
+    if (al) { prefs.phrase = +al.dataset.l; savePrefs(); accD = null; return metroUI(); }
     const d = e.target.closest('[data-d]');
     if (d) {
       // 8 ↔ 12 adımlı desen arasında geçince ölçü başından devam et
@@ -1011,7 +1055,6 @@ function openMetro() {
     if (!b) return;
     const m = b.dataset.m;
     if (m === 'go') return mOn ? metroStop() : metroStart();
-    if (m === 'syl') { prefs.syl = prefs.syl === false; savePrefs(); accD = null; return metroUI(); }
     if (m === 'rec') { if (!cur.bpm) return toast('Önce tempoyu ayarla'); return recStart(); }
     if (m === 'recDel') { delete st(cur.song.id).dur; saveStats(); accD = null; toast('Kayıtlı süreler silindi'); return metroUI(); }
     if (m === 'bass') { prefs.bass = prefs.bass === false; savePrefs(); return metroUI(); }

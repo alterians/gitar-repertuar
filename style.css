@@ -301,3 +301,5 @@ button.ichip:active { border-color: var(--accent); }
 .rec-bar .big small { opacity: .75; font-weight: 600; margin-left: 6px; }
 .rec-bar .link { background: var(--card); padding: 4px 14px; border-radius: 10px; }
 #mRec small span { color: var(--accent); font-weight: 700; padding: 0 2px; }
+#accLen { grid-template-columns: auto repeat(4, 1fr); align-items: center; }
+.m-lbl { font-size: 13px; color: var(--muted); padding-right: 4px; }
