@@ -600,12 +600,16 @@ async function requestWake() {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cur) requestWake(); });
 /* ---------- metronom / bateri (4/4, sekizlik adımlar) ---------- */
 let mctx = null, mOut = null, noise = null, mOn = false, mBeat = 0, mNext = 0, mTimer = null, taps = [];
-// k: kick, s: trampet, h: hi-hat — 8 adım = bir ölçü (1 & 2 & 3 & 4 &)
+// k: kick, s: trampet, h: hi-hat, r: kenar (rim), b: fırça — desen uzunluğu bir ölçü:
+// 8 adım = sekizlik (1 & 2 & 3 & 4 &), 12 adım = 12/8 (her vuruşta üç)
 const DRUMS = {
-  klik: { n: 'Klik' },
+  klik: { n: 'Klik', k: '........' },
   pop: { n: 'Pop', k: 'x...x...', s: '..x...x.', h: 'xxxxxxxx' },
-  balad: { n: 'Balad', k: 'x.....x.', s: '..x...x.', h: 'x.x.x.x.', soft: true },
   rock: { n: 'Rock', k: 'x..xx.x.', s: '..x...x.', h: 'xxxxxxxx' },
+  balad: { n: 'Balad', k: 'x.....x.', s: '..x...x.', h: 'x.x.x.x.', soft: true },
+  slow: { n: 'Slow', k: 'x.......', s: '....x...', h: 'x.x.x.x.', soft: true },
+  firca: { n: 'Fırça', k: 'x.....x.', r: '..x...x.', b: 'x.x.x.x.', soft: true },
+  '128': { n: '12/8', k: 'x.....x.x...', s: '...x.....x..', h: 'xxxxxxxxxxxx', soft: true },
 };
 if (!DRUMS[prefs.drum]) prefs.drum = 'klik';
 
@@ -624,40 +628,86 @@ function noiseSrc(t, len, type, freq) {
 }
 function kick(t, v) {
   const o = mctx.createOscillator();
-  o.frequency.setValueAtTime(140, t);
-  o.frequency.exponentialRampToValueAtTime(45, t + .13);
-  o.connect(env(t, v, .35)); o.start(t); o.stop(t + .36);
+  o.frequency.setValueAtTime(155, t);
+  o.frequency.exponentialRampToValueAtTime(48, t + .1);
+  o.connect(env(t, v, .4)); o.start(t); o.stop(t + .42);
+  noiseSrc(t, .015, 'lowpass', 2500).connect(env(t, v * .35, .012)); // tokmak sesi
 }
 function snare(t, v) {
-  noiseSrc(t, .2, 'highpass', 1200).connect(env(t, v * .7, .18));
+  noiseSrc(t, .22, 'highpass', 1400).connect(env(t, v * .65, .16 + Math.random() * .04));
+  noiseSrc(t, .1, 'bandpass', 900).connect(env(t, v * .3, .07));
   const o = mctx.createOscillator();
-  o.type = 'triangle'; o.frequency.value = 190;
-  o.connect(env(t, v * .5, .08)); o.start(t); o.stop(t + .09);
+  o.type = 'triangle';
+  o.frequency.setValueAtTime(200, t);
+  o.frequency.exponentialRampToValueAtTime(160, t + .08);
+  o.connect(env(t, v * .45, .09)); o.start(t); o.stop(t + .1);
 }
-function hat(t, v) { noiseSrc(t, .05, 'highpass', 7500).connect(env(t, v * .28, .045)); }
+function tom(t, v, f) {
+  const o = mctx.createOscillator();
+  o.frequency.setValueAtTime(f, t);
+  o.frequency.exponentialRampToValueAtTime(f * .55, t + .28);
+  o.connect(env(t, v * .85, .32)); o.start(t); o.stop(t + .34);
+  noiseSrc(t, .03, 'bandpass', f * 6).connect(env(t, v * .2, .025));
+}
+function hat(t, v, open) {
+  const len = open ? .3 : .035 + Math.random() * .02;
+  noiseSrc(t, len + .01, 'highpass', 7000 + Math.random() * 1500).connect(env(t, v * (open ? .22 : .28), len));
+}
+function crash(t, v, soft) {
+  noiseSrc(t, soft ? .8 : 1.7, soft ? 'bandpass' : 'highpass', soft ? 6500 : 4500).connect(env(t, v * (soft ? .14 : .26), soft ? .7 : 1.6));
+}
+function rim(t, v) {
+  const o = mctx.createOscillator();
+  o.type = 'triangle'; o.frequency.value = 1700;
+  o.connect(env(t, v * .45, .03)); o.start(t); o.stop(t + .04);
+  noiseSrc(t, .04, 'bandpass', 3200).connect(env(t, v * .5, .035));
+}
+function brush(t, v) { noiseSrc(t, .3, 'bandpass', 2600).connect(env(t, v * .3, .26)); }
 function click(t, acc) {
   const o = mctx.createOscillator();
   o.frequency.value = acc ? 1650 : 1050;
   o.connect(env(t, acc ? .9 : .5, .05)); o.start(t); o.stop(t + .06);
 }
-function metroStep(t, i) {
-  const d = DRUMS[prefs.drum];
-  if (!d.k) { if (i % 2 === 0) click(t, i === 0); }
+// Canlı çalım: her 4. ölçünün sonunda dolgu (s trampet, T/M/L tomlar), ardından zil;
+// küçük zaman/kuvvet oynaması, ara sıra hayalet trampet ve ekstra kick.
+const FILLS = { 8: ['ssTL', '..TL', 's.ss', '.sML'], 12: ['sTL', 'TML', 'sss'] };
+const TOMS = { T: 210, M: 160, L: 115 };
+let mBar = 0, mFill = '';
+function metroStep(t, i, d) {
+  const L = d.k.length, per = L / 4, on = p => p && p[i] === 'x';
+  if (prefs.drum === 'klik') click(t, i === 0);
   else {
-    const v = d.soft ? .65 : 1;
-    if (d.k[i] === 'x') kick(t, v);
-    if (d.s[i] === 'x') snare(t, v);
-    if (d.h[i] === 'x') hat(t, v * (i % 2 ? .7 : 1));
+    const live = prefs.live !== false;
+    const base = d.soft ? .65 : 1, vel = () => base * (live ? .8 + Math.random() * .3 : 1);
+    const tt = live ? t + Math.random() * .008 : t;
+    if (live && i === 0) mFill = mBar % 4 === 3 ? pick(FILLS[L]) : '';
+    const fi = mFill ? i - (L - mFill.length) : -1, f = fi >= 0 ? mFill[fi] : null;
+    if (on(d.k) || (live && mBar % 2 === 1 && i === L / 2 - 1 && Math.random() < .35)) kick(tt, vel());
+    if (f) {
+      if (f === 's') snare(tt, vel() * (fi ? .8 : 1));
+      else if (f !== '.') tom(tt, vel(), TOMS[f]);
+      if (d.h && f === '.') hat(tt, vel() * .6);
+      return;
+    }
+    const crashNow = live && i === 0 && mBar > 0 && mBar % 4 === 0;
+    if (crashNow) crash(tt, vel(), d.soft);
+    if (on(d.s)) snare(tt, vel());
+    else if (live && d.s && i % per && Math.random() < .12) snare(tt, base * .16); // hayalet vuruş
+    if (on(d.r)) rim(tt, vel());
+    if (on(d.b)) brush(tt, vel());
+    if (on(d.h) && !crashNow) hat(tt, vel() * (i % per ? .7 : 1), live && !d.soft && mBar % 4 === 1 && i === L - 1);
   }
-  if (i % 2 === 0) setTimeout(() => metroFlash(i / 2), Math.max(0, (t - mctx.currentTime) * 1000));
 }
 function metroTick() {
   // Web Audio saatine göre biraz ileriyi planla: setInterval kaysa da vuruşlar kaymaz
   if (mNext < mctx.currentTime - .2) mNext = mctx.currentTime + .05; // arka plandan dönünce birikmiş vuruşları çalma
+  const d = DRUMS[prefs.drum], L = d.k.length, per = L / 4;
   while (mNext < mctx.currentTime + .12) {
-    metroStep(mNext, mBeat);
-    mNext += 30 / cur.bpm;
-    mBeat = (mBeat + 1) % 8;
+    if (mBeat >= L) { mBeat = 0; mBar++; }
+    if (prefs.drum !== 'klik' || mBeat % per === 0) metroStep(mNext, mBeat, d);
+    if (mBeat % per === 0) { const b = mBeat / per; setTimeout(() => metroFlash(b), Math.max(0, (mNext - mctx.currentTime) * 1000)); }
+    mNext += 240 / cur.bpm / L;
+    mBeat++;
   }
 }
 function metroStart() {
@@ -673,7 +723,7 @@ function metroStart() {
     for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
   }
   mctx.resume();
-  mOn = true; mBeat = 0; mNext = mctx.currentTime + .06;
+  mOn = true; mBeat = 0; mBar = 0; mNext = mctx.currentTime + .06;
   clearInterval(mTimer);
   mTimer = setInterval(metroTick, 25);
   metroTick();
@@ -698,6 +748,8 @@ function metroUI() {
   const g = $('#mGo');
   if (g) { g.classList.toggle('on', mOn); g.innerHTML = mOn ? `${ic('pause')} Durdur` : `${ic('play')} Başlat`; }
   if (!mOn) document.querySelectorAll('.mdot').forEach(d => d.classList.remove('on'));
+  const lv = $('#mLive');
+  if (lv) { lv.classList.toggle('on', prefs.live !== false); lv.classList.toggle('hidden', prefs.drum === 'klik'); lv.innerHTML = `<i></i> Canlı çalım <small>${prefs.live !== false ? 'açık · dolgular, zil, doğal vuruş' : 'kapalı · hep aynı desen'}</small>`; }
   document.querySelectorAll('[data-d]').forEach(d => d.classList.toggle('on', d.dataset.d === prefs.drum));
   const r = $('#mReset');
   if (r && cur) r.classList.toggle('hidden', !cur.song.bpm || cur.bpm === +cur.song.bpm);
@@ -717,18 +769,26 @@ function openMetro() {
     <p class="muted metro-sub">bpm · 4/4${orig ? ` · kayıtlı tempo ${orig}` : ''}</p>
     <div class="mdots"><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i></div>
     <div class="drums">${Object.entries(DRUMS).map(([k, d]) => `<button data-d="${k}">${d.n}</button>`).join('')}</div>
+    <button class="live-tg" id="mLive" data-m="live"></button>
     <div class="row3"><button data-m="half">½×</button><button data-m="tap">Ritme dokun</button><button data-m="dbl">2×</button></div>
     <button class="big metro-go" id="mGo" data-m="go"></button>
     <button class="link metro-reset hidden" id="mReset" data-m="reset">Kayıtlı tempoya dön (${orig})</button>
-    <p class="muted">Tempo yanlışsa şarkıyı dinlerken vuruşlara "Ritme dokun" ile birkaç kez bas. Çok hızlı geliyorsa ½×.</p>`);
+    <p class="muted">Tempo yanlışsa şarkıyı dinlerken vuruşlara "Ritme dokun" ile birkaç kez bas. Çok hızlı geliyorsa ½×. Yavaş şarkılarda Balad, Slow, Fırça ya da 12/8 dene.</p>`);
   metroUI();
   $('#sheetBody').onclick = e => {
     const d = e.target.closest('[data-d]');
-    if (d) { prefs.drum = d.dataset.d; savePrefs(); if (!mOn) metroStart(); return metroUI(); }
+    if (d) {
+      // 8 ↔ 12 adımlı desen arasında geçince ölçü başından devam et
+      if (DRUMS[d.dataset.d].k.length !== DRUMS[prefs.drum].k.length) mBeat = 0;
+      prefs.drum = d.dataset.d; savePrefs();
+      if (!mOn) metroStart();
+      return metroUI();
+    }
     const b = e.target.closest('[data-m]');
     if (!b) return;
     const m = b.dataset.m;
     if (m === 'go') return mOn ? metroStop() : metroStart();
+    if (m === 'live') { prefs.live = prefs.live === false; savePrefs(); return metroUI(); }
     if (m === 'reset') return setBpm(orig);
     if (m === 'half') return setBpm((cur.bpm || 80) / 2);
     if (m === 'dbl') return setBpm((cur.bpm || 80) * 2);
