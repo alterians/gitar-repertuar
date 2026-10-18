@@ -457,6 +457,7 @@ function showSong(id) {
   const chordTap = e => {
     const c = e.target.closest('[data-c]');
     if (!c) return;
+    if (rec && c.closest('#body')) return;
     if (mOn && prefs.acc === 'akor' && c.closest('#body')) { accJump = accEls().indexOf(c); c.classList.add('now'); return toast('Buradan devam 🎻'); }
     showChord(c.dataset.c);
   };
@@ -615,7 +616,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // Ton: şarkının tonunda kök + beşli arka plan. Akor: sözlerdeki akorları sırayla çalar,
 // her akor prefs.accLen vuruş sürer; çalan akor parlar, sayfa ona kayar, akora dokununca oradan devam.
 const hz = m => 440 * 2 ** ((m - 69) / 12);
-let pads = [], accIdx = -1, accLeft = 0, accPos = 0, accJump = null, accChord = null;
+let pads = [], accIdx = -1, accLeft = 0, accPos = 0, accJump = null, accChord = null, accD = null, rec = null;
 function parseChord(name, shift) {
   const m = /^([A-G])([#b]?)(.*?)(?:\/([A-G])([#b]?))?$/.exec(name || '');
   if (!m) return null;
@@ -665,11 +666,31 @@ function bass(t, m, len, v) {
   }
 }
 const accEls = () => [...document.querySelectorAll('#body .c')];
+// her akorun kaç vuruş süreceği: dokunarak kaydedildiyse o, yoksa hece sayısıyla orantılı
+// (ortalama hece sayısı = seçilen süre), hece yoksa (akor satırı) seçilen süre
+const VOWELS = /[aeıioöuüâîûAEIİOÖUÜÂÎÛ]+/g;
+function accDurs(els) {
+  const L = prefs.accLen || 4, d = cur && st(cur.song.id).dur;
+  if (d && d.length === els.length) return d;
+  if (prefs.syl === false) return els.map(() => L);
+  const syl = els.map(el => {
+    let w = el.closest('.line') && el.closest('.w'), n = 0;
+    while (w) {
+      n += (w.querySelector('.t').textContent.match(VOWELS) || []).length;
+      w = w.nextElementSibling;
+      if (w && w.querySelector('.c')) break;
+    }
+    return n;
+  });
+  const v = syl.filter(Boolean), avg = v.reduce((a, b) => a + b, 0) / (v.length || 1), g = L >= 4 ? 2 : 1;
+  // 1 ölçülükte yarım ölçü (2 vuruş) adımlarla: akorlar çoğunlukla 1. ya da 3. vuruşta değişir
+  return syl.map(n => n ? Math.min(L * 3, Math.max(g, Math.round(L * n / avg / g) * g)) : L);
+}
 function accReset() {
   // ekranda görünen ilk akordan başla
   const els = accEls();
   const i = els.findIndex(el => el.getBoundingClientRect().top > 70);
-  accIdx = (i < 0 ? 0 : i) - 1; accLeft = 0; accJump = null; accChord = null;
+  accIdx = (i < 0 || rec ? 0 : i) - 1; accLeft = 0; accJump = null; accChord = null; accD = null;
 }
 function accShow(i) {
   document.querySelectorAll('#body .c.now').forEach(el => el.classList.remove('now'));
@@ -690,12 +711,15 @@ function accBeat(t, b) {
   } else if (prefs.acc === 'akor') {
     const els = accEls();
     if (!els.length) return;
+    if (!accD || accD.length !== els.length) accD = accDurs(els);
     if (accJump != null) { accIdx = accJump - 1; accJump = null; accLeft = 0; }
     if (accLeft <= 0) {
       accIdx = (accIdx + 1) % els.length;
-      accLeft = prefs.accLen || 4; accPos = 0;
+      accLeft = rec ? Infinity : accD[accIdx]; accPos = 0;
+      if (rec && rec.last == null) rec.last = t;
       accChord = parseChord(els[accIdx].dataset.c, cur.capo);
-      if (accChord) pad(t, voice(accChord.pcs), accLeft * spb);
+      if (rec) pads.forEach(g => { g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(0, t, .08); }); // kayıtta akor dokununca biter
+      if (accChord) pad(t, voice(accChord.pcs), (rec ? 32 : accLeft) * spb);
       const i = accIdx;
       setTimeout(() => accShow(i), Math.max(0, (t - mctx.currentTime) * 1000));
     }
@@ -705,6 +729,42 @@ function accBeat(t, b) {
     }
     accPos++; accLeft--;
   }
+}
+/* dokunarak kayıt: akor değiştikçe butona basılır, aradaki süre vuruşa çevrilip şarkıya kaydedilir */
+function recStart() {
+  closeSheet();
+  prefs.acc = 'akor'; savePrefs();
+  rec = { b: [], last: null };
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (!mOn) metroStart();
+  accIdx = -1; accLeft = 0; accJump = null; accD = null;
+  document.querySelector('.song').insertAdjacentHTML('beforeend',
+    `<div class="rec-bar" id="recBar"><button class="big" id="recTap"></button><button class="link" id="recX">İptal</button></div>`);
+  $('#recTap').onclick = recTap;
+  $('#recX').onclick = () => { recEnd(); toast('Kayıt iptal edildi'); };
+  recUI();
+}
+function recUI() {
+  const b = $('#recTap');
+  if (b) b.innerHTML = `👆 Akor değişti <small>${rec.b.length + 1}/${accEls().length}</small>`;
+}
+function recTap() {
+  if (!rec || rec.last == null) return;
+  const now = mctx.currentTime, n = accEls().length;
+  rec.b.push(Math.max(1, Math.round((now - rec.last) * cur.bpm / 60)));
+  rec.last = now;
+  if (rec.b.length >= n) {
+    st(cur.song.id).dur = rec.b; saveStats();
+    recEnd(); accReset();
+    return toast('Akor süreleri kaydedildi ✅');
+  }
+  accLeft = 0; // sıradaki vuruşta sonraki akora geç
+  recUI();
+}
+function recEnd() {
+  rec = null; accD = null;
+  const r = $('#recBar'); if (r) r.remove();
+  if (mOn) accLeft = 0;
 }
 function accStop() {
   const now = mctx ? mctx.currentTime : 0;
@@ -862,6 +922,7 @@ function metroStart() {
 }
 function metroStop() {
   clearInterval(mTimer);
+  if (rec) recEnd();
   accStop();
   mOn = false;
   metroUI();
@@ -887,7 +948,10 @@ function metroUI() {
   const al = $('#accLen'), mb = $('#mBass'), ah = $('#accHint');
   if (al) al.classList.toggle('hidden', acc !== 'akor');
   if (mb) { mb.classList.toggle('hidden', acc === 'off'); mb.classList.toggle('on', prefs.bass !== false); mb.innerHTML = `<i></i> Bas gitar <small>${prefs.bass !== false ? 'açık' : 'kapalı'}</small>`; }
-  if (ah) ah.textContent = acc === 'akor' ? 'Her akor seçtiğin süre kadar çalar; çalan akor sözlerde parlar. Kayarsa sözlerdeki bir akora dokun, oradan devam eder.' : acc === 'ton' ? 'Şarkının tonunda yumuşak bir arka plan; akorlarla çakışmaz.' : '';
+  const dur = cur && st(cur.song.id).dur, sy = $('#mSyl'), rc = $('#mRec');
+  if (sy) { sy.classList.toggle('hidden', acc !== 'akor' || !!dur); sy.classList.toggle('on', prefs.syl !== false); sy.innerHTML = `<i></i> Hece'ye göre süre <small>${prefs.syl !== false ? 'açık' : 'kapalı'}</small>`; }
+  if (rc) { rc.classList.toggle('hidden', acc !== 'akor'); rc.innerHTML = dur ? `✅ Kayıtlı süreler <small><span data-m="recDel">Sil</span> · <span data-m="rec">Yeniden</span></small>` : `⏺ Süreleri dokunarak kaydet <small>isteğe bağlı</small>`; }
+  if (ah) ah.textContent = acc === 'akor' ? (dur ? 'Akorlar senin kaydettiğin sürelerle çalar.' : prefs.syl !== false ? 'Süre sözden tahmin edilir: seçtiğin süre ortalama akor süresidir. Tam tutsun istersen bir kez dokunarak kaydet.' : 'Her akor seçtiğin süre kadar çalar.') + ' Kayarsa sözlerdeki bir akora dokun, oradan devam eder.' : acc === 'ton' ? 'Şarkının tonunda yumuşak bir arka plan; akorlarla çakışmaz.' : '';
   const lv = $('#mLive');
   if (lv) { lv.classList.toggle('on', prefs.live !== false); lv.classList.toggle('hidden', prefs.drum === 'klik' || prefs.drum === 'yok'); lv.innerHTML = `<i></i> Canlı çalım <small>${prefs.live !== false ? 'açık · dolgular, zil, doğal vuruş' : 'kapalı · hep aynı desen'}</small>`; }
   document.querySelectorAll('[data-d]').forEach(d => d.classList.toggle('on', d.dataset.d === prefs.drum));
@@ -907,6 +971,7 @@ function openMetro() {
     <h3 class="sh-title">${ic('timer')} Metronom & Bateri</h3>
     <div class="metro-bpm"><button data-m="-5">−5</button><button data-m="-1">−</button><b id="mBpm"></b><button data-m="1">+</button><button data-m="5">+5</button></div>
     <p class="muted metro-sub">bpm · 4/4${orig ? ` · kayıtlı tempo ${orig}` : ''}</p>
+    <div class="row3"><button data-m="half">½×</button><button data-m="tap">👆 Ritme dokun</button><button data-m="dbl">2×</button></div>
     <div class="mdots"><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i></div>
     <button class="big metro-go" id="mGo" data-m="go"></button>
     <div class="drums">${Object.entries(DRUMS).map(([k, d]) => `<button data-d="${k}">${d.n}</button>`).join('')}</div>
@@ -915,9 +980,10 @@ function openMetro() {
     <h4 class="m-h">🎻 Eşlik <small>keman + bas</small></h4>
     <div class="drums acc">${[['off', 'Kapalı'], ['ton', 'Ton'], ['akor', 'Akor takibi']].map(([k, n]) => `<button data-e="${k}">${n}</button>`).join('')}</div>
     <div class="drums acc" id="accLen">${[[2, '½ ölçü'], [4, '1 ölçü'], [8, '2 ölçü']].map(([k, n]) => `<button data-l="${k}">${n}</button>`).join('')}</div>
+    <button class="live-tg" id="mSyl" data-m="syl"></button>
+    <button class="live-tg" id="mRec" data-m="rec"></button>
     <button class="live-tg" id="mBass" data-m="bass"></button>
     <p class="muted" id="accHint"></p>
-    <div class="row3"><button data-m="half">½×</button><button data-m="tap">Ritme dokun</button><button data-m="dbl">2×</button></div>
     <button class="link metro-reset hidden" id="mReset" data-m="reset">Kayıtlı tempoya dön (${orig})</button>
     <p class="muted">Tempo yanlışsa şarkıyı dinlerken vuruşlara "Ritme dokun" ile birkaç kez bas. Çok hızlı geliyorsa ½×. Yavaş şarkılarda Balad, Slow, Fırça ya da 12/8 dene.</p>`);
   metroUI();
@@ -932,7 +998,7 @@ function openMetro() {
       if (prefs.acc !== 'off' && !mOn) metroStart();
       return metroUI();
     }
-    if (al) { prefs.accLen = +al.dataset.l; savePrefs(); return metroUI(); }
+    if (al) { prefs.accLen = +al.dataset.l; savePrefs(); accD = null; return metroUI(); }
     const d = e.target.closest('[data-d]');
     if (d) {
       // 8 ↔ 12 adımlı desen arasında geçince ölçü başından devam et
@@ -945,6 +1011,9 @@ function openMetro() {
     if (!b) return;
     const m = b.dataset.m;
     if (m === 'go') return mOn ? metroStop() : metroStart();
+    if (m === 'syl') { prefs.syl = prefs.syl === false; savePrefs(); accD = null; return metroUI(); }
+    if (m === 'rec') { if (!cur.bpm) return toast('Önce tempoyu ayarla'); return recStart(); }
+    if (m === 'recDel') { delete st(cur.song.id).dur; saveStats(); accD = null; toast('Kayıtlı süreler silindi'); return metroUI(); }
     if (m === 'bass') { prefs.bass = prefs.bass === false; savePrefs(); return metroUI(); }
     if (m === 'live') { prefs.live = prefs.live === false; savePrefs(); return metroUI(); }
     if (m === 'reset') return setBpm(orig);

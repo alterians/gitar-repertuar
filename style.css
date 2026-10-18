@@ -295,3 +295,9 @@ button.ichip:active { border-color: var(--accent); }
 .m-h small { color: var(--muted); font-weight: 400; }
 .drums.acc { grid-template-columns: repeat(3, 1fr); }
 #body .c.now { color: #fff; text-shadow: 0 0 2px var(--chord), 0 0 10px var(--chord), 0 0 22px var(--accent); transform: scale(1.2); transform-origin: left bottom; }
+
+.rec-bar { position: fixed; left: 16px; right: 16px; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 30; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.rec-bar .big { width: 100%; padding: 18px; font-size: 19px; touch-action: manipulation; }
+.rec-bar .big small { opacity: .75; font-weight: 600; margin-left: 6px; }
+.rec-bar .link { background: var(--card); padding: 4px 14px; border-radius: 10px; }
+#mRec small span { color: var(--accent); font-weight: 700; padding: 0 2px; }
