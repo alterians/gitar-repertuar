@@ -628,9 +628,15 @@ function noiseSrc(t, len, type, freq) {
 }
 function kick(t, v) {
   const o = mctx.createOscillator();
-  o.frequency.setValueAtTime(155, t);
-  o.frequency.exponentialRampToValueAtTime(48, t + .1);
+  o.frequency.setValueAtTime(170, t);
+  o.frequency.exponentialRampToValueAtTime(52, t + .1);
   o.connect(env(t, v, .4)); o.start(t); o.stop(t + .42);
+  // telefon hoparlörü 100 Hz altını zor verir: duyulsun diye üstüne kısa bir gövde sesi
+  const p = mctx.createOscillator();
+  p.type = 'triangle';
+  p.frequency.setValueAtTime(240, t);
+  p.frequency.exponentialRampToValueAtTime(110, t + .06);
+  p.connect(env(t, v * .5, .09)); p.start(t); p.stop(t + .1);
   noiseSrc(t, .015, 'lowpass', 2500).connect(env(t, v * .35, .012)); // tokmak sesi
 }
 function snare(t, v) {
@@ -716,13 +722,18 @@ function metroStart() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { } // iPhone sessiz modda da çalsın
   if (!mctx) {
     mctx = new (window.AudioContext || window.webkitAudioContext)();
-    mOut = mctx.createDynamicsCompressor();
-    mOut.connect(mctx.destination);
+    // ses yükseltme -> limitleyici: telefon hoparlöründe yüksek ama patlamadan
+    const lim = mctx.createDynamicsCompressor();
+    lim.threshold.value = -12; lim.knee.value = 6; lim.ratio.value = 12; lim.attack.value = .002; lim.release.value = .15;
+    lim.connect(mctx.destination);
+    mOut = mctx.createGain();
+    mOut.connect(lim);
     noise = mctx.createBuffer(1, mctx.sampleRate, mctx.sampleRate);
     const ch = noise.getChannelData(0);
     for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
   }
   mctx.resume();
+  mOut.gain.value = metroVol();
   mOn = true; mBeat = 0; mBar = 0; mNext = mctx.currentTime + .06;
   clearInterval(mTimer);
   mTimer = setInterval(metroTick, 25);
@@ -740,6 +751,7 @@ function metroFlash(b) {
   if (c) { c.classList.remove('beat', 'beat1'); void c.offsetWidth; c.classList.add(b === 0 ? 'beat1' : 'beat'); }
   document.querySelectorAll('.mdot').forEach((d, i) => d.classList.toggle('on', i === b));
 }
+const metroVol = () => (prefs.vol ?? 80) / 100 * 3.2;
 function metroUI() {
   const c = $('#bpmChip');
   if (c) { c.classList.toggle('on', mOn); c.innerHTML = `${ic('timer')} ${cur && cur.bpm ? `<b>${cur.bpm}</b> bpm` : 'Tempo'}`; }
@@ -769,12 +781,14 @@ function openMetro() {
     <p class="muted metro-sub">bpm · 4/4${orig ? ` · kayıtlı tempo ${orig}` : ''}</p>
     <div class="mdots"><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i></div>
     <div class="drums">${Object.entries(DRUMS).map(([k, d]) => `<button data-d="${k}">${d.n}</button>`).join('')}</div>
+    <label class="vol">${ic('music')} Ses <input type="range" id="mVol" min="10" max="100" value="${prefs.vol ?? 80}"></label>
     <button class="live-tg" id="mLive" data-m="live"></button>
     <div class="row3"><button data-m="half">½×</button><button data-m="tap">Ritme dokun</button><button data-m="dbl">2×</button></div>
     <button class="big metro-go" id="mGo" data-m="go"></button>
     <button class="link metro-reset hidden" id="mReset" data-m="reset">Kayıtlı tempoya dön (${orig})</button>
     <p class="muted">Tempo yanlışsa şarkıyı dinlerken vuruşlara "Ritme dokun" ile birkaç kez bas. Çok hızlı geliyorsa ½×. Yavaş şarkılarda Balad, Slow, Fırça ya da 12/8 dene.</p>`);
   metroUI();
+  $('#mVol').oninput = e => { prefs.vol = +e.target.value; savePrefs(); if (mOut) mOut.gain.value = metroVol(); };
   $('#sheetBody').onclick = e => {
     const d = e.target.closest('[data-d]');
     if (d) {
