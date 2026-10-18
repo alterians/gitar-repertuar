@@ -424,7 +424,7 @@ function showSong(id) {
   if (!song) { location.hash = '#/'; return; }
   const x = st(id);
   const parsed = parseContent(song.content);
-  cur = { song, parsed, key: songKey(song, parsed), t: x.t || 0, capo: x.capo != null && x.capoBase === (song.capo || 0) ? x.capo : (song.capo || 0) };
+  cur = { song, parsed, key: songKey(song, parsed), t: x.t || 0, capo: x.capo != null && x.capoBase === (song.capo || 0) ? x.capo : (song.capo || 0), bpm: x.bpm || +song.bpm || 0 };
   app.innerHTML = `
   <div class="song">
     <header class="song-head">
@@ -460,6 +460,7 @@ function showSong(id) {
   $('#infoRow').onclick = e => {
     if (e.target.closest('#lvlChip')) { x.level = (x.level + 1) % 3; saveStats(); renderSong(); toast(LEVELS[x.level].i + ' ' + LEVELS[x.level].n); }
     else if (e.target.closest('#keyChip')) openCapo();
+    else if (e.target.closest('#bpmChip')) openMetro();
   };
   requestWake();
 }
@@ -474,7 +475,7 @@ function renderSong() {
   if (key) chips.push(`<button class="ichip" id="keyChip">${ic('music')} Ton <b>${keyName(key, cur.t)}</b></button>`);
   chips.push(`<button class="ichip" onclick="openCapo()">${ic('capo')} ${cur.capo ? `Kapo <b>${cur.capo}</b>` : 'Kapo yok'}</button>`);
   if (key && cur.capo) chips.push(`<span class="ichip">${ic('shape')} Şekil <b>${keyName(key, cur.t - cur.capo)}</b></span>`);
-  if (song.bpm) chips.push(`<span class="ichip">${ic('timer')} <b>${esc(song.bpm)}</b> bpm</span>`);
+  chips.push(`<button class="ichip${mOn ? ' on' : ''}" id="bpmChip">${ic('timer')} ${cur.bpm ? `<b>${cur.bpm}</b> bpm` : 'Tempo'}</button>`);
   chips.push(`<button class="ichip" id="lvlChip">${lvlIc(x.level)} ${LEVELS[x.level].n}</button>`);
   if (x.plays) chips.push(`<span class="ichip">${ic('play')} ${x.plays}×</span>`);
   $('#infoRow').innerHTML = chips.join('');
@@ -516,7 +517,7 @@ function act(a) {
   else if (a === 'capo') openCapo();
   else if (a === 'f-' || a === 'f+') { prefs.font = Math.min(34, Math.max(12, prefs.font + (a === 'f+' ? 2 : -2))); savePrefs(); $('#body').style.fontSize = prefs.font + 'px'; }
   else if (a === 'scroll') scrollRAF ? stopScroll() : startScroll();
-  else if (a === 'spd') { prefs.speed = prefs.speed % 8 + 1; savePrefs(); $('#spdBtn').textContent = '×' + prefs.speed; }
+  else if (a === 'spd') { prefs.speed = prefs.speed % SPEEDS.length + 1; savePrefs(); $('#spdBtn').textContent = '×' + prefs.speed; }
 }
 
 function openCapo() {
@@ -572,12 +573,14 @@ function played() {
   renderSong();
 }
 
+// px/sn; eski ×1 (9 px/sn) artık ×6
+const SPEEDS = [2.5, 3.5, 4.5, 5.5, 7, 9, 11.5, 14.5, 18, 23];
 function startScroll() {
   let last = performance.now(), acc = 0;
   $('#scrollBtn').innerHTML = ic('pause');
   $('#scrollBtn').classList.add('on');
   const step = now => {
-    acc += (now - last) / 1000 * prefs.speed * 9;
+    acc += (now - last) / 1000 * SPEEDS[Math.min(prefs.speed, SPEEDS.length) - 1];
     last = now;
     if (acc >= 1) { window.scrollBy(0, Math.floor(acc)); acc -= Math.floor(acc); }
     if (window.innerHeight + window.scrollY >= document.body.scrollHeight - 2) return stopScroll();
@@ -595,7 +598,103 @@ async function requestWake() {
   try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch { }
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cur) requestWake(); });
+/* ---------- metronom (4/4, ilk vuruş vurgulu) ---------- */
+let mctx = null, mOn = false, mBeat = 0, mNext = 0, mTimer = null, taps = [];
+
+function metroClick(t, b) {
+  const o = mctx.createOscillator(), g = mctx.createGain();
+  o.frequency.value = b === 0 ? 1650 : 1050;
+  g.gain.setValueAtTime(b === 0 ? .9 : .5, t);
+  g.gain.exponentialRampToValueAtTime(.001, t + .05);
+  o.connect(g).connect(mctx.destination);
+  o.start(t); o.stop(t + .06);
+  setTimeout(() => metroFlash(b), Math.max(0, (t - mctx.currentTime) * 1000));
+}
+function metroTick() {
+  // Web Audio saatine göre biraz ileriyi planla: setInterval kaysa da vuruşlar kaymaz
+  if (mNext < mctx.currentTime - .2) mNext = mctx.currentTime + .05; // arka plandan dönünce birikmiş vuruşları çalma
+  while (mNext < mctx.currentTime + .12) {
+    metroClick(mNext, mBeat);
+    mNext += 60 / cur.bpm;
+    mBeat = (mBeat + 1) % 4;
+  }
+}
+function metroStart() {
+  if (!cur) return;
+  if (!cur.bpm) cur.bpm = 80;
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { } // iPhone sessiz modda da çalsın
+  mctx ||= new (window.AudioContext || window.webkitAudioContext)();
+  mctx.resume();
+  mOn = true; mBeat = 0; mNext = mctx.currentTime + .06;
+  clearInterval(mTimer);
+  mTimer = setInterval(metroTick, 25);
+  metroTick();
+  metroUI();
+}
+function metroStop() {
+  clearInterval(mTimer);
+  mOn = false;
+  metroUI();
+}
+function metroFlash(b) {
+  if (!mOn) return;
+  const c = $('#bpmChip');
+  if (c) { c.classList.remove('beat', 'beat1'); void c.offsetWidth; c.classList.add(b === 0 ? 'beat1' : 'beat'); }
+  document.querySelectorAll('.mdot').forEach((d, i) => d.classList.toggle('on', i === b));
+}
+function metroUI() {
+  const c = $('#bpmChip');
+  if (c) { c.classList.toggle('on', mOn); c.innerHTML = `${ic('timer')} ${cur && cur.bpm ? `<b>${cur.bpm}</b> bpm` : 'Tempo'}`; }
+  const n = $('#mBpm');
+  if (n && cur) n.textContent = cur.bpm || '—';
+  const g = $('#mGo');
+  if (g) { g.classList.toggle('on', mOn); g.innerHTML = mOn ? `${ic('pause')} Durdur` : `${ic('play')} Başlat`; }
+  if (!mOn) document.querySelectorAll('.mdot').forEach(d => d.classList.remove('on'));
+  const r = $('#mReset');
+  if (r && cur) r.classList.toggle('hidden', !cur.song.bpm || cur.bpm === +cur.song.bpm);
+}
+function setBpm(v) {
+  cur.bpm = Math.round(Math.min(240, Math.max(30, v)));
+  const x = st(cur.song.id);
+  if (cur.bpm === +cur.song.bpm) delete x.bpm; else x.bpm = cur.bpm;
+  saveStats();
+  metroUI();
+}
+function openMetro() {
+  const orig = +cur.song.bpm;
+  openSheet(`
+    <h3 class="sh-title">${ic('timer')} Metronom</h3>
+    <div class="metro-bpm"><button data-m="-5">−5</button><button data-m="-1">−</button><b id="mBpm"></b><button data-m="1">+</button><button data-m="5">+5</button></div>
+    <p class="muted metro-sub">bpm · 4/4${orig ? ` · kayıtlı tempo ${orig}` : ''}</p>
+    <div class="mdots"><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i></div>
+    <div class="row3"><button data-m="half">½×</button><button data-m="tap">Ritme dokun</button><button data-m="dbl">2×</button></div>
+    <button class="big metro-go" id="mGo" data-m="go"></button>
+    <button class="link metro-reset hidden" id="mReset" data-m="reset">Kayıtlı tempoya dön (${orig})</button>
+    <p class="muted">Tempo yanlışsa şarkıyı dinlerken vuruşlara "Ritme dokun" ile birkaç kez bas. Çok hızlı geliyorsa ½×.</p>`);
+  metroUI();
+  $('#sheetBody').onclick = e => {
+    const b = e.target.closest('[data-m]');
+    if (!b) return;
+    const m = b.dataset.m;
+    if (m === 'go') return mOn ? metroStop() : metroStart();
+    if (m === 'reset') return setBpm(orig);
+    if (m === 'half') return setBpm((cur.bpm || 80) / 2);
+    if (m === 'dbl') return setBpm((cur.bpm || 80) * 2);
+    if (m === 'tap') {
+      const now = performance.now();
+      if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
+      taps.push(now);
+      taps = taps.slice(-6);
+      if (taps.length > 1) setBpm(60000 * (taps.length - 1) / (now - taps[0]));
+      b.classList.remove('beat1'); void b.offsetWidth; b.classList.add('beat1');
+      return;
+    }
+    setBpm((cur.bpm || 80) + +m);
+  };
+}
+
 function stopSong() {
+  metroStop();
   stopScroll();
   cur = null;
   if (wakeLock) { wakeLock.release().catch(() => { }); wakeLock = null; }

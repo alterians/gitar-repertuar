@@ -259,3 +259,22 @@ button.ichip:active { border-color: var(--accent); }
 .dice .die .ic { width: 1.35em; height: 1.35em; vertical-align: -.3em; }
 .lvl { line-height: 0; }
 .toolbar .ic { width: 18px; height: 18px; }
+
+/* metronom */
+#bpmChip.on { border-color: var(--accent); color: var(--ink); }
+#bpmChip.beat { animation: beat .16s ease-out; }
+#bpmChip.beat1, .row3 button.beat1 { animation: beat1 .22s ease-out; }
+@keyframes beat { from { background: color-mix(in srgb, var(--accent) 35%, var(--card)); } }
+@keyframes beat1 { from { background: var(--accent); color: var(--accent-ink); transform: scale(1.06); } }
+.metro-bpm { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 6px 0 0; }
+.metro-bpm b { font-size: 56px; min-width: 2.3em; text-align: center; color: var(--chord); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.metro-bpm button { width: 44px; height: 44px; border-radius: 50%; background: var(--bg2); border: 1px solid var(--line); font-weight: 700; flex: none; }
+.metro-sub { text-align: center; margin: 0; }
+.mdots { display: flex; justify-content: center; gap: 16px; margin: 16px 0; }
+.mdot { width: 16px; height: 16px; border-radius: 50%; background: var(--line); transition: background .08s, transform .08s; }
+.mdot.on { background: var(--chord); transform: scale(1.35); }
+.mdot:first-child.on { background: var(--accent); transform: scale(1.6); }
+.metro-bpm button, .row3 button, .metro-go { touch-action: manipulation; }
+.metro-go { display: block; width: 100%; margin-top: 12px; }
+.metro-go.on { background: var(--bg2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--accent); }
+.metro-reset { display: block; margin: 10px auto 0; }
