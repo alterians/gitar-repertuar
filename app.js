@@ -598,32 +598,80 @@ async function requestWake() {
   try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch { }
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && cur) requestWake(); });
-/* ---------- metronom (4/4, ilk vuruş vurgulu) ---------- */
-let mctx = null, mOn = false, mBeat = 0, mNext = 0, mTimer = null, taps = [];
+/* ---------- metronom / bateri (4/4, sekizlik adımlar) ---------- */
+let mctx = null, mOut = null, noise = null, mOn = false, mBeat = 0, mNext = 0, mTimer = null, taps = [];
+// k: kick, s: trampet, h: hi-hat — 8 adım = bir ölçü (1 & 2 & 3 & 4 &)
+const DRUMS = {
+  klik: { n: 'Klik' },
+  pop: { n: 'Pop', k: 'x...x...', s: '..x...x.', h: 'xxxxxxxx' },
+  balad: { n: 'Balad', k: 'x.....x.', s: '..x...x.', h: 'x.x.x.x.', soft: true },
+  rock: { n: 'Rock', k: 'x..xx.x.', s: '..x...x.', h: 'xxxxxxxx' },
+};
+if (!DRUMS[prefs.drum]) prefs.drum = 'klik';
 
-function metroClick(t, b) {
-  const o = mctx.createOscillator(), g = mctx.createGain();
-  o.frequency.value = b === 0 ? 1650 : 1050;
-  g.gain.setValueAtTime(b === 0 ? .9 : .5, t);
-  g.gain.exponentialRampToValueAtTime(.001, t + .05);
-  o.connect(g).connect(mctx.destination);
-  o.start(t); o.stop(t + .06);
-  setTimeout(() => metroFlash(b), Math.max(0, (t - mctx.currentTime) * 1000));
+function env(t, peak, len) {
+  const g = mctx.createGain();
+  g.gain.setValueAtTime(peak, t);
+  g.gain.exponentialRampToValueAtTime(.001, t + len);
+  g.connect(mOut);
+  return g;
+}
+function noiseSrc(t, len, type, freq) {
+  const s = mctx.createBufferSource(), f = mctx.createBiquadFilter();
+  s.buffer = noise; f.type = type; f.frequency.value = freq;
+  s.connect(f); s.start(t); s.stop(t + len);
+  return f;
+}
+function kick(t, v) {
+  const o = mctx.createOscillator();
+  o.frequency.setValueAtTime(140, t);
+  o.frequency.exponentialRampToValueAtTime(45, t + .13);
+  o.connect(env(t, v, .35)); o.start(t); o.stop(t + .36);
+}
+function snare(t, v) {
+  noiseSrc(t, .2, 'highpass', 1200).connect(env(t, v * .7, .18));
+  const o = mctx.createOscillator();
+  o.type = 'triangle'; o.frequency.value = 190;
+  o.connect(env(t, v * .5, .08)); o.start(t); o.stop(t + .09);
+}
+function hat(t, v) { noiseSrc(t, .05, 'highpass', 7500).connect(env(t, v * .28, .045)); }
+function click(t, acc) {
+  const o = mctx.createOscillator();
+  o.frequency.value = acc ? 1650 : 1050;
+  o.connect(env(t, acc ? .9 : .5, .05)); o.start(t); o.stop(t + .06);
+}
+function metroStep(t, i) {
+  const d = DRUMS[prefs.drum];
+  if (!d.k) { if (i % 2 === 0) click(t, i === 0); }
+  else {
+    const v = d.soft ? .65 : 1;
+    if (d.k[i] === 'x') kick(t, v);
+    if (d.s[i] === 'x') snare(t, v);
+    if (d.h[i] === 'x') hat(t, v * (i % 2 ? .7 : 1));
+  }
+  if (i % 2 === 0) setTimeout(() => metroFlash(i / 2), Math.max(0, (t - mctx.currentTime) * 1000));
 }
 function metroTick() {
   // Web Audio saatine göre biraz ileriyi planla: setInterval kaysa da vuruşlar kaymaz
   if (mNext < mctx.currentTime - .2) mNext = mctx.currentTime + .05; // arka plandan dönünce birikmiş vuruşları çalma
   while (mNext < mctx.currentTime + .12) {
-    metroClick(mNext, mBeat);
-    mNext += 60 / cur.bpm;
-    mBeat = (mBeat + 1) % 4;
+    metroStep(mNext, mBeat);
+    mNext += 30 / cur.bpm;
+    mBeat = (mBeat + 1) % 8;
   }
 }
 function metroStart() {
   if (!cur) return;
   if (!cur.bpm) cur.bpm = 80;
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { } // iPhone sessiz modda da çalsın
-  mctx ||= new (window.AudioContext || window.webkitAudioContext)();
+  if (!mctx) {
+    mctx = new (window.AudioContext || window.webkitAudioContext)();
+    mOut = mctx.createDynamicsCompressor();
+    mOut.connect(mctx.destination);
+    noise = mctx.createBuffer(1, mctx.sampleRate, mctx.sampleRate);
+    const ch = noise.getChannelData(0);
+    for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+  }
   mctx.resume();
   mOn = true; mBeat = 0; mNext = mctx.currentTime + .06;
   clearInterval(mTimer);
@@ -650,6 +698,7 @@ function metroUI() {
   const g = $('#mGo');
   if (g) { g.classList.toggle('on', mOn); g.innerHTML = mOn ? `${ic('pause')} Durdur` : `${ic('play')} Başlat`; }
   if (!mOn) document.querySelectorAll('.mdot').forEach(d => d.classList.remove('on'));
+  document.querySelectorAll('[data-d]').forEach(d => d.classList.toggle('on', d.dataset.d === prefs.drum));
   const r = $('#mReset');
   if (r && cur) r.classList.toggle('hidden', !cur.song.bpm || cur.bpm === +cur.song.bpm);
 }
@@ -663,16 +712,19 @@ function setBpm(v) {
 function openMetro() {
   const orig = +cur.song.bpm;
   openSheet(`
-    <h3 class="sh-title">${ic('timer')} Metronom</h3>
+    <h3 class="sh-title">${ic('timer')} Metronom & Bateri</h3>
     <div class="metro-bpm"><button data-m="-5">−5</button><button data-m="-1">−</button><b id="mBpm"></b><button data-m="1">+</button><button data-m="5">+5</button></div>
     <p class="muted metro-sub">bpm · 4/4${orig ? ` · kayıtlı tempo ${orig}` : ''}</p>
     <div class="mdots"><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i><i class="mdot"></i></div>
+    <div class="drums">${Object.entries(DRUMS).map(([k, d]) => `<button data-d="${k}">${d.n}</button>`).join('')}</div>
     <div class="row3"><button data-m="half">½×</button><button data-m="tap">Ritme dokun</button><button data-m="dbl">2×</button></div>
     <button class="big metro-go" id="mGo" data-m="go"></button>
     <button class="link metro-reset hidden" id="mReset" data-m="reset">Kayıtlı tempoya dön (${orig})</button>
     <p class="muted">Tempo yanlışsa şarkıyı dinlerken vuruşlara "Ritme dokun" ile birkaç kez bas. Çok hızlı geliyorsa ½×.</p>`);
   metroUI();
   $('#sheetBody').onclick = e => {
+    const d = e.target.closest('[data-d]');
+    if (d) { prefs.drum = d.dataset.d; savePrefs(); if (!mOn) metroStart(); return metroUI(); }
     const b = e.target.closest('[data-m]');
     if (!b) return;
     const m = b.dataset.m;
